@@ -20,4 +20,5 @@ Gem::Specification.new do |spec|
   spec.add_dependency "dnsruby"
   spec.add_dependency "public_suffix"
   spec.add_dependency "mail"
+  spec.add_dependency "activesupport"
 end

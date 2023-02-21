@@ -1,5 +1,5 @@
 class HomographicSpoofing::Sanitizer::Base
-  class_attribute :logger, default: Rails.logger
+  class_attribute :logger, default: HomographicSpoofing.logger
 
   def self.sanitize(field)
     new(field).sanitize
@@ -30,7 +30,7 @@ class HomographicSpoofing::Sanitizer::Base
     end
 
     def log(reason, label)
-      self.class.logger.info("#{spoofing_type} Spoofing detected for: \"#{reason}\" on: \"#{label}\".")
+      self.class.logger.info("#{spoofing_type} Spoofing detected for: \"#{reason}\" on: \"#{label}\".") if self.class.logger
     end
 
     def spoofing_type

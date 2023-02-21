@@ -16,7 +16,7 @@ class HomographicSpoofing::Detector::EmailAddress
   end
 
   def detections
-    mail_address = Mail::Address.wrap(email_address)
+    mail_address = mail_address_wrap(email_address)
     [].tap do |result|
       result.concat detector_for(part: mail_address.name,   type: "quoted_string").detections if mail_address.name
       result.concat detector_for(part: mail_address.local,  type: "local").detections if mail_address.local
@@ -32,5 +32,9 @@ class HomographicSpoofing::Detector::EmailAddress
 
     def detector_for(type:, part:)
       "HomographicSpoofing::Detector::#{type.camelize}".constantize.new(part)
+    end
+
+    def mail_address_wrap(email_address)
+      email_address.is_a?(Mail::Address) ? email_address : Mail::Address.new(email_address)
     end
 end

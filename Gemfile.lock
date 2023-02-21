@@ -2,6 +2,7 @@ PATH
   remote: .
   specs:
     homographic_spoofing (0.1.0)
+      activesupport
       dnsruby
       mail
       public_suffix
