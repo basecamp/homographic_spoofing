@@ -49,6 +49,7 @@ GEM
       net-smtp
     method_source (1.0.0)
     mini_mime (1.1.2)
+    mini_portile2 (2.8.7)
     minitest (5.17.0)
     net-imap (0.3.4)
       date
@@ -59,9 +60,8 @@ GEM
       timeout
     net-smtp (0.3.3)
       net-protocol
-    nokogiri (1.14.0-arm64-darwin)
-      racc (~> 1.4)
-    nokogiri (1.14.0-x86_64-linux)
+    nokogiri (1.14.0)
+      mini_portile2 (~> 2.8.0)
       racc (~> 1.4)
     public_suffix (5.0.1)
     racc (1.6.2)
@@ -95,6 +95,7 @@ GEM
 
 PLATFORMS
   arm64-darwin-21
+  arm64-darwin-22
   x86_64-linux
 
 DEPENDENCIES
