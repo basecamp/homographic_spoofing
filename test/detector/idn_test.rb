@@ -12,6 +12,7 @@ class HomographicSpoofing::Detector::IdnTest < ActiveSupport::TestCase
   test "Valid mixed scripts" do
     assert_safe("おaかbがcキdギeクf.co.jp") # Latin, Hiragana, Katakana
     assert_safe("aㄉbㄊcde夕f.com")         # Latin, Bopomofo, Han
+    assert_safe("example.বাংলা")            # Latin, Bengali
   end
 
   test "Invalid mixed scripts" do
@@ -265,8 +266,8 @@ class HomographicSpoofing::Detector::IdnTest < ActiveSupport::TestCase
   end
 
   test "PublixSuffix parsing errors" do
-    assert_attack("nic.bd", reason: "invalid_domain")
     assert_attack("  ", reason: "invalid_domain")
+    assert_attack("example|.com", reason: "disallowed_characters")
   end
 
   private

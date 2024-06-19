@@ -3,7 +3,7 @@ require "test_helper"
 class HomographicSpoofing::Detector::QuotedStringTest < ActiveSupport::TestCase
   test "Unicode NFC format" do
     # Invalid unicode
-    assert_attack("text".force_encoding("ISO-8859-1"), reason: "invalid_unicode")
+    assert_attack("text".dup.force_encoding("ISO-8859-1"), reason: "invalid_unicode")
     assert_attack("1A\u030A3rf", reason: "nfc")
     assert_safe("scope")
   end

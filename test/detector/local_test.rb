@@ -37,7 +37,7 @@ class HomographicSpoofing::Detector::LocalTest < ActiveSupport::TestCase
 
   test "Unicode NFKC format" do
     # Invalid unicode
-    assert_attack("text".force_encoding("ISO-8859-1"), reason: "invalid_unicode")
+    assert_attack("text".encode("ISO-8859-1"), reason: "invalid_unicode")
     assert_attack("1𝟤3rf".unicode_normalize(:nfc), reason: "nfkc")
     assert_safe("scope")
   end

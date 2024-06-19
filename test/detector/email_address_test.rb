@@ -7,11 +7,11 @@ class HomographicSpoofing::Detector::EmailAddressTest < ActiveSupport::TestCase
   end
 
   test "detect local part" do
-    assert_attack "tᴡitter@twitter.com"
+    assert_attack "t\u{1D21}itter@twitter.com" # tᴡitter@twitter.com
   end
 
   test "detect idn" do
-    assert_attack "jacopo@tᴡitter.com"
+    assert_attack "jacopo@t\u{1D21}itter.com" # jacopo@tᴡitter.com
   end
 
   test "ignore nil email address parts" do
@@ -21,6 +21,13 @@ class HomographicSpoofing::Detector::EmailAddressTest < ActiveSupport::TestCase
     assert_safe "\"jacopo beschi\" <jacopobeschi>"
     # nil domain
     assert_safe "jacopo"
+  end
+
+  test "private domains are allowed but idn attacks are detected" do
+    assert_safe "someone.from@notaires.fr"
+    assert_attack "someone.from@n\u{1D0F}taires.fr" # someone.from@nᴏtaires.fr
+    assert_safe "someone.from@blogspot.com"
+    assert_attack "someone.from@bl\u{1D0F}gspot.com" # someone.from@blᴏgspot.com
   end
 
   private
