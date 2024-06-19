@@ -101,10 +101,6 @@ HomographicSpoofing.sanitize_email_name("Jacopo Beschi")
 # => "Jacopo Beschi"
 ```
 
-## Requirements
-
-Ruby >= 3.1.0
-
 ## Development
 
 To experiment, start the console with `bin/console`.
