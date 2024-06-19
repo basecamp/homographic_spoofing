@@ -61,6 +61,18 @@ class HomographicSpoofing::Detector::Idn
     end
 
     def public_suffix
-      @public_suffix ||= PublicSuffix.parse(domain, ignore_private: true)
+      @public_suffix ||= icann_domain || non_icann_domain
+    end
+
+    def icann_domain
+      PublicSuffix.parse(domain, ignore_private: true) if PublicSuffix.valid?(domain)
+    end
+
+    def non_icann_domain
+      if PublicSuffix::List.default.find(domain, default: nil, ignore_private: true).present?
+        PublicSuffix::Domain.new(domain)
+      else
+        raise PublicSuffix::DomainInvalid
+      end
     end
 end
