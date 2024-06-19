@@ -1,8 +1,8 @@
 # Detects IDN Spoofing homographic attacks (See https://en.wikipedia.org/wiki/IDN_homograph_attack).
 #
-# The implementation follows loosely Google Chrome IDN policy
+# The implementation follows Google Chrome IDN policy
 # (See https://chromium.googlesource.com/chromium/src.git/+/master/docs/idn.md#google-chrome_s-idn-policy)
-# but with a few limitations:
+# but with some limitations:
 #  - It doesn't rely on ICU4C uspoof.h (https://unicode-org.github.io/icu-docs/apidoc/released/icu4c/uspoof_8h.html)
 #    hence the script confusable detection is not as precise.
 #  - It doesn't implement 13. of Google IDN policy.
