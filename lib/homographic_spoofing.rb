@@ -27,7 +27,7 @@ module HomographicSpoofing
     end
 
     def idn_spoof?(idn)
-      HomographicSpoofing::Detector::Idn.detected?(email_address)
+      HomographicSpoofing::Detector::Idn.detected?(idn)
     end
 
     def sanitize_email_address(email_address)
