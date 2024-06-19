@@ -1,0 +1,30 @@
+#!/usr/bin/env ruby
+
+require "net/http"
+
+# Retrieve all the Characters allowed in identifiers per http://www.unicode.org/reports/tr39/#Identifier_Status_and_Type
+# and stores them in a .txt file.
+
+puts "loading..."
+
+unicode_util_uri = URI("https://util.unicode.org/UnicodeJsps/list-unicodeset.jsp?a=%5B%3AIdentifierStatus%3DAllowed%3A%5D&g=&i=")
+html = Net::HTTP.get(unicode_util_uri)
+
+CHARACTER_OR_REPETITION_REGEXP = /u\+([a-z0-9]+)|(\{\d+\})/i
+dict = html.scan(CHARACTER_OR_REPETITION_REGEXP).flatten.compact
+# transform repetitions and create utf8 chars
+dict = dict.map.with_index do |chr, idx|
+  if chr =~ /\{(\d+)\}/ # repetition
+    # start for the character next to previous up to captured length - 1
+    start = dict[idx - 1].to_i(16) + 1
+    (start.chr("utf-8")..(start + $1.to_i - 1).chr("utf-8")).to_a
+  else
+    chr.to_i(16).chr("utf-8")
+  end
+end.flatten
+
+puts "total #{dict.length} characters"
+
+File.write(File.join(__dir__, "../", "lib/homographic_spoofing/detector/rule/data/allowed_idn_characters.txt"), dict.join)
+
+puts "done"
