@@ -10,6 +10,8 @@ require "active_support/core_ext"
 loader = Zeitwerk::Loader.for_gem
 loader.setup
 
+require "homographic_spoofing/railtie" if defined?(Rails::Railtie)
+
 module HomographicSpoofing
   mattr_accessor :logger, instance_accessor: false
 
