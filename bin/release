@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+VERSION=$1
+
+printf "module HomographicSpoofing\n  VERSION = \"$VERSION\"\nend\n" > ./lib/homographic_spoofing/version.rb
+bundle
+git add Gemfile.lock lib/homographic_spoofing/version.rb
+git commit -m "Bump version for $VERSION"
+git push
+git tag v$VERSION
+git push --tags
+gem build homographic_spoofing
+gem push "homographic_spoofing-$VERSION.gem" --host https://rubygems.org
+rm "homographic_spoofing-$VERSION.gem"
