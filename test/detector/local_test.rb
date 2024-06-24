@@ -17,7 +17,6 @@ class HomographicSpoofing::Detector::LocalTest < ActiveSupport::TestCase
   test "Invalid mixed scripts" do
     assert_attack("аaбbгcдdеeжf") # Cyrillic, Latin
     assert_attack("paypαl")       # Greek, Latin
-    assert_attack("paypαl")       # Greek, Latin
     assert_attack("abc𐒊𐒋𐒌")       # Latin, Osmanya
     assert_attack("ㄈㄉㄊおかが") # Bopomofo, Hiragana
     assert_attack("ㄈㄉㄊᄊᄋᄌ") # Bopomofo, Hangul
