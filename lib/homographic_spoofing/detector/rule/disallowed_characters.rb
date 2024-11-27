@@ -2,7 +2,7 @@
 class HomographicSpoofing::Detector::Rule::DisallowedCharacters < HomographicSpoofing::Detector::Rule::Base
   class << self
     # See http://kb.mozillazine.org/Network.IDN.blacklist_chars
-    MOZZILLA_DISALLOWED_CHARACTERS = Set[
+    MOZILLA_DISALLOWED_CHARACTERS = Set[
       "\u0020", # Space
       "\u00a0", # No-break space
       "\u00bc", # Vulgar fraction one quarter
@@ -124,7 +124,7 @@ class HomographicSpoofing::Detector::Rule::DisallowedCharacters < HomographicSpo
     ]
 
     def allowed_chars_set
-      @@allowed_chars_set ||= (read_allowed_idn_chars.chars.to_set - MOZZILLA_DISALLOWED_CHARACTERS)
+      @@allowed_chars_set ||= (read_allowed_idn_chars.chars.to_set - MOZILLA_DISALLOWED_CHARACTERS)
     end
 
     private
