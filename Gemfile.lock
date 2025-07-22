@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    homographic_spoofing (0.1.1)
+    homographic_spoofing (0.1.2)
       activesupport
       csv (~> 3.3)
       dnsruby
