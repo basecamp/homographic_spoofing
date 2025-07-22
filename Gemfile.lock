@@ -3,6 +3,7 @@ PATH
   specs:
     homographic_spoofing (0.1.1)
       activesupport
+      csv (~> 3.3)
       dnsruby
       mail
       public_suffix
