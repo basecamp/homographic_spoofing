@@ -49,6 +49,7 @@ GEM
     concurrent-ruby (1.3.4)
     connection_pool (2.4.1)
     crass (1.0.6)
+    csv (3.3.5)
     date (3.4.1)
     dnsruby (1.72.1)
       simpleidn (~> 0.2.1)
@@ -131,6 +132,7 @@ GEM
 PLATFORMS
   arm64-darwin-21
   arm64-darwin-22
+  arm64-darwin-24
   x86_64-linux
 
 DEPENDENCIES
