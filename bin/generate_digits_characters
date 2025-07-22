@@ -1,0 +1,34 @@
+#!/usr/bin/env ruby
+
+require "net/http"
+require "csv"
+
+# Retrieve all the Unicode digits grouped by script and stores them in a .csv file.
+
+puts "loading..."
+
+unicode_util_uri = URI("https://util.unicode.org/UnicodeJsps/list-unicodeset.jsp?a=%5B%3Adigit%3A%5D&g=&i=")
+html = Net::HTTP.get(unicode_util_uri)
+
+# Based on the response HTML.
+CHARACTER_OR_REPETITION_REGEXP = %r{u\+([a-z0-9]+)\</a\>\</code\>\</td\>\<td\>([a-z\- ]+)}i
+digits_and_scripts = html.scan(CHARACTER_OR_REPETITION_REGEXP)
+
+digits_and_scripts.map! do |digit, script|
+  # Rely on String.undump to convert unicode codepoints to utf8 characters.
+  unicode_digit = digit.to_i(16).chr("utf-8")
+  script_name = script.split(" ").tap(&:pop).join("_").downcase
+  [ unicode_digit, script_name ]
+end
+
+puts "processed #{digits_and_scripts.length} characters"
+
+csv = CSV.generate do |csv|
+  digits_and_scripts.each do |digit, script|
+    csv << [ digit, script ]
+  end
+end
+
+File.write(File.join(__dir__, "../", "lib/homographic_spoofing/detector/rule/data/digits.csv"), csv)
+
+puts "done"

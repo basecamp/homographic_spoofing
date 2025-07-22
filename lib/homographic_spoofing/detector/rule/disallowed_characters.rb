@@ -128,7 +128,7 @@ class HomographicSpoofing::Detector::Rule::DisallowedCharacters < HomographicSpo
     end
 
     private
-      # Built with script/development/generate_allowed_idn_characters.rb
+      # Built with bin/generate_allowed_idn_characters
       def read_allowed_idn_chars
         File.read("#{__dir__}/data/allowed_idn_characters.txt")
       end

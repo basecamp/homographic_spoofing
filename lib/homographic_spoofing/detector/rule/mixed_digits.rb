@@ -23,7 +23,7 @@ class HomographicSpoofing::Detector::Rule::MixedDigits < HomographicSpoofing::De
       end
     end
 
-    # Built with script/development/generate_digits_characters.rb
+    # Built with bin/generate_digits_characters
     def read_digits
       File.read("#{__dir__}/data/digits.csv")
     end
