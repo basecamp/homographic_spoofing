@@ -54,7 +54,7 @@ GEM
     crass (1.0.6)
     csv (3.3.5)
     date (3.5.1)
-    dnsruby (1.73.1)
+    dnsruby (1.74.0)
       base64 (>= 0.2)
       logger (~> 1.6)
       simpleidn (~> 0.2.1)
