@@ -1,10 +1,9 @@
 # 9. and 10. of Google Chrome IDN policy See http://unicode.org/reports/tr39/#Confusable_Detection
 class HomographicSpoofing::Detector::Rule::Idn::ScriptConfusable < HomographicSpoofing::Detector::Rule::Idn::Base
   def attack_detected?
-    # Scan each domain label independently: a confusable label anywhere in the
-    # chain is an attack even when benign sibling labels — including same-script
-    # ones without a Latin look-alike — would make the *combined* string pass
-    # the all-look-alike check below.
+    # Per label, not over the whole subdomain chain: `all?` over the merged
+    # chain lets one non-look-alike character in a benign sibling label suppress
+    # detection of an adjacent all-look-alike (confusable) label.
     sublabels.any? do |sublabel|
       SCRIPT_CONFUSABLES.any? do |confusable|
         confusable_chars = sublabel.scan(confusable.script)
