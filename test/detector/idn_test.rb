@@ -200,6 +200,29 @@ class HomographicSpoofing::Detector::IdnTest < ActiveSupport::TestCase
     assert_attack("\u0300abc.jp")
   end
 
+  test "Whole script confusable is not allowed on TLDs that merely contain an allowed ccTLD as a substring" do
+    # раураӏ = paypal spoofed with Cyrillic look-alikes.
+    assert_attack("раураӏ.com", reason: "script_confusable")
+    assert_safe("раураӏ.ru")   # legit: single-label ccTLD .ru is allowed for Cyrillic
+    # These TLDs only *contain* an allowed Cyrillic ccTLD as a substring and
+    # must not disable detection: .guru⊃ru, .surf⊃su, .baby/.rugby⊃by.
+    assert_attack("раураӏ.guru", reason: "script_confusable")
+    assert_attack("раураӏ.surf", reason: "script_confusable")
+    assert_attack("раураӏ.baby", reason: "script_confusable")
+    assert_attack("раураӏ.rugby", reason: "script_confusable")
+    # Cross-script substring collisions: .net⊃et (Ethiopic), .email⊃il (Hebrew).
+    assert_attack("ሠዐዐፐ.net", reason: "script_confusable")
+    assert_attack("חסד.email", reason: "script_confusable")
+    # The allowed ccTLD must be a trailing label, not any interior label: .il is
+    # Israel's registry, but k12.il.us is a US suffix and must stay guarded.
+    assert_attack("חסד.k12.il.us", reason: "script_confusable")
+    # Multi-label public suffixes stay allowed for their script: .th matches the
+    # trailing label of co.th, Myanmar's expression matches all of net.mm.
+    assert_safe("ทนบพรห.co.th")
+    assert_safe("ทนบพรห.th")
+    assert_safe("င၀ဂခဂ.net.mm")
+  end
+
   test "Whole script confusable" do
     # Armenian
     assert_attack("ոսւօ.com")
