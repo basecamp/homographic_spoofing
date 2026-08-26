@@ -223,6 +223,39 @@ class HomographicSpoofing::Detector::IdnTest < ActiveSupport::TestCase
     assert_safe("င၀ဂခဂ.net.mm")
   end
 
+  test "Script confusable is detected per-label, not on the whole subdomain chain" do
+    # A single confusable label must be caught even when benign sibling labels
+    # elsewhere in the chain would make the *combined* string fail the
+    # all-look-alike check. раураӏ = paypal spoofed with Cyrillic look-alikes;
+    # музей (museum in Russian) is same-script Cyrillic but has characters
+    # without a Latin look-alike, so scanning the chain as one label hid it.
+    assert_attack("раураӏ.музей.example.com", reason: "script_confusable")
+    assert_attack("музей.раураӏ.example.com", reason: "script_confusable")
+    # TLD-independent: the .com allow-list plays no part; any TLD is affected.
+    assert_attack("раураӏ.музей.example.net", reason: "script_confusable")
+    assert_attack("раураӏ.музей.example.org", reason: "script_confusable")
+    # Benign ASCII sibling labels must not mask the confusable one either.
+    assert_attack("shop.ѕсоре.example.io", reason: "script_confusable")
+    assert_attack("ѕсоре.www.example.co.uk", reason: "script_confusable")
+    # Confusable buried several labels deep in a longer chain.
+    assert_attack("a.раураӏ.b.c.example.com", reason: "script_confusable")
+
+    # Legitimate multi-label domains must not regress into false positives.
+    # Per-label scanning still honours #72's allowed-TLD anchoring: an all
+    # look-alike Cyrillic label on a Cyrillic-allowed ccTLD stays safe, even as
+    # a subdomain.
+    assert_safe("рау.почта.ru")
+    assert_safe("рау.example.москва")
+    # Same-script but non-look-alike labels remain safe regardless of siblings.
+    assert_safe("почта.музей.example.ru")
+    # Plain ASCII / punycode subdomains carry no confusable script.
+    assert_safe("www.example.com")
+    assert_safe("login.accounts.example.co.uk")
+    assert_safe("xn--80a1acny.www.example.com")
+    # Legitimate Han/Kana subdomain chains stay highly-restrictive and safe.
+    assert_safe("おかが.キギク.co.jp")
+  end
+
   test "Whole script confusable" do
     # Armenian
     assert_attack("ոսւօ.com")

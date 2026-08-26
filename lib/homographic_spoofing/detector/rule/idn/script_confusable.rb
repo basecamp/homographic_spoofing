@@ -1,15 +1,25 @@
 # 9. and 10. of Google Chrome IDN policy See http://unicode.org/reports/tr39/#Confusable_Detection
 class HomographicSpoofing::Detector::Rule::Idn::ScriptConfusable < HomographicSpoofing::Detector::Rule::Idn::Base
   def attack_detected?
-    SCRIPT_CONFUSABLES.any? do |confusable|
-      confusable_chars = label.scan(confusable.script)
-      confusable_chars.present? &&
-        confusable_chars.all? { confusable.latin_lookalike.match?(_1) } &&
-        !is_script_confusable_allowed_for_tld?(confusable)
+    # Scan each domain label independently: a confusable label anywhere in the
+    # chain is an attack even when benign sibling labels — including same-script
+    # ones without a Latin look-alike — would make the *combined* string pass
+    # the all-look-alike check below.
+    sublabels.any? do |sublabel|
+      SCRIPT_CONFUSABLES.any? do |confusable|
+        confusable_chars = sublabel.scan(confusable.script)
+        confusable_chars.present? &&
+          confusable_chars.all? { confusable.latin_lookalike.match?(_1) } &&
+          !is_script_confusable_allowed_for_tld?(confusable)
+      end
     end
   end
 
   private
+    def sublabels
+      label.split(".")
+    end
+
     Confusable = Struct.new(:script, :latin_lookalike, :allowed_tlds)
     SCRIPT_CONFUSABLES = [
       # Armenian
