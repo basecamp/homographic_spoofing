@@ -16,6 +16,7 @@ class HomographicSpoofing::Detector::Idn
   end
 
   def initialize(domain)
+    @original_domain = domain
     @domain = domain.downcase
   end
 
@@ -25,15 +26,44 @@ class HomographicSpoofing::Detector::Idn
 
   def detections
     rules.select(&:attack_detected?).map do |rule|
-      HomographicSpoofing::Detector::Detection.new(rule.reason, rule.label)
+      HomographicSpoofing::Detector::Detection.new(rule.reason, original_case(rule.label))
     end
   rescue PublicSuffix::Error
     # Invalid IDN is a spoof.
-    [ HomographicSpoofing::Detector::Detection.new("invalid_domain", domain) ]
+    [ HomographicSpoofing::Detector::Detection.new("invalid_domain", original_domain) ]
   end
 
   private
-    attr_reader :domain
+    attr_reader :domain, :original_domain
+
+    # Detection runs on the lowercased domain, so labels come back lowercased.
+    # Recover the original-cased run of the domain the label occupies, so the
+    # sanitizer can substitute by exact match instead of regexp case folding —
+    # which both over-matches (folds unrelated ASCII, e.g. ſ/s) and under-matches
+    # (misses case pairs folding omits, e.g. Ⱥ/ⱥ). Map each lowercased position
+    # back to the original character it came from, then locate the label in the
+    # lowercased form. This stays correct — and linear — where a fixed offset
+    # would not: when a character lowercases to a different length (İ → i̇), and
+    # when PublicSuffix stripped surrounding characters the raw domain carries.
+    def original_case(label)
+      origin = []
+      lowercased = +""
+      original_domain.each_char.with_index do |char, index|
+        downcased = char.downcase
+        lowercased << downcased
+        downcased.length.times { origin << index }
+      end
+
+      from = 0
+      while (start = lowercased.index(label, from))
+        span = original_domain[origin[start]..origin[start + label.length - 1]]
+        # `index` can land inside a character whose lowercase spans several (İ →
+        # i̇), so accept only a span that round-trips exactly to the label.
+        return span if span.downcase == label
+        from = start + 1
+      end
+      label
+    end
 
     def rules
       @rules ||= contexts.flat_map { |ctx| rules_for(ctx) }
