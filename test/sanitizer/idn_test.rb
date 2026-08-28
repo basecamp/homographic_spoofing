@@ -21,6 +21,26 @@ class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
     assert_sanitize "APPLE.com", "APPLE.com"
   end
 
+  # Ⱥ (U+023A) lowercases to ⱥ (U+2C65) under String#downcase but not under
+  # regexp case folding, so recovering the original-cased label positionally —
+  # rather than via /i — is what lets this uppercase spoof be sanitized.
+  test "sanitize confusable domain with a special-cased character" do
+    assert_sanitize "xn--pple-k49b.com", "Ⱥpple.com"
+  end
+
+  # İ (U+0130) lowercases to two codepoints (i + combining dot), so the label's
+  # original casing is recovered by matching lowercase content rather than a
+  # character offset, which the length change would otherwise shift.
+  test "sanitize confusable domain with a length-changing lowercase" do
+    assert_sanitize "xn--ipple-7fd.com", "İpple.com"
+  end
+
+  # PublicSuffix strips surrounding whitespace the raw domain still carries, so a
+  # fixed offset into the domain would miss the label; content matching does not.
+  test "sanitize confusable domain with surrounding whitespace" do
+    assert_sanitize " xn--pple-43d.com ", " Аpple.com "
+  end
+
   private
     def assert_sanitize(sanitized, domain)
       assert_equal sanitized, HomographicSpoofing::Sanitizer::Idn.sanitize(domain)

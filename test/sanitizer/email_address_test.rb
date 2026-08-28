@@ -46,6 +46,15 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
     assert_sanitize "Apple Support <x@xn--pple-43d.com>", "Apple Support <x@аpple.com>"
   end
 
+  # The name is only substituted when its own detector flags it. A confusable
+  # local part must not bleed into a name that differs from it by case: the long
+  # s (ſ) case-folds to ASCII s, and the small capital w (ᴡ) shares a case pair
+  # with ASCII W, but each name here is left to its quoted-string detector.
+  test "confusable local part does not mutate a case-variant name" do
+    assert_sanitize "Support <support@example.com>", "Support <ſupport@example.com>"
+    assert_sanitize "Tᴡitter <xn--titter-345b@twitter.com>", "Tᴡitter <tᴡitter@twitter.com>"
+  end
+
   private
     def assert_sanitize(sanitized, email_address)
       assert_equal sanitized, HomographicSpoofing::Sanitizer::EmailAddress.sanitize(email_address)
