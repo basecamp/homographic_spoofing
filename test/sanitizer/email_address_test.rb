@@ -38,6 +38,14 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
     HomographicSpoofing::Sanitizer::EmailAddress.logger = previous_logger
   end
 
+  test "sanitize uppercase confusable idn domain" do
+    assert_sanitize "jacopo@xn--pple-43d.com", "jacopo@Аpple.com"
+  end
+
+  test "sanitize uppercase confusable idn domain leaves benign ascii name untouched" do
+    assert_sanitize "Apple Support <x@xn--pple-43d.com>", "Apple Support <x@аpple.com>"
+  end
+
   private
     def assert_sanitize(sanitized, email_address)
       assert_equal sanitized, HomographicSpoofing::Sanitizer::EmailAddress.sanitize(email_address)

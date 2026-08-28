@@ -22,7 +22,8 @@ class HomographicSpoofing::Sanitizer::Base
     attr_reader :field
 
     def punycode(source, label)
-      source.gsub(label, Dnsruby::Name.punycode(label))
+      punycoded = Dnsruby::Name.punycode(label)
+      source.gsub(/#{Regexp.escape(label)}/i) { punycoded }
     end
 
     def detector_class

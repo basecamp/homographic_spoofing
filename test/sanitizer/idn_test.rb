@@ -16,6 +16,11 @@ class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
     HomographicSpoofing::Sanitizer::Idn.logger = previous_logger
   end
 
+  test "sanitize uppercase and mixed-case confusable domain" do
+    assert_sanitize "xn--pple-43d.com", "Аpple.com"
+    assert_sanitize "APPLE.com", "APPLE.com"
+  end
+
   private
     def assert_sanitize(sanitized, domain)
       assert_equal sanitized, HomographicSpoofing::Sanitizer::Idn.sanitize(domain)
