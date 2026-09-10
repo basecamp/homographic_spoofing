@@ -1,0 +1,198 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: # Manual runs are always a dry-run rehearsal: build only, never publish.
+
+permissions: {}
+
+# One release cut at a time; never cancel a run that may already be publishing.
+concurrency:
+  group: release-publishing
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.4.5"
+          # No restored cache in the release path: the published gem must not
+          # depend on bytes a cache could poison.
+          bundler-cache: false
+      - run: bundle install --jobs 4 --retry 3
+      - run: bin/test
+
+  # Build is deliberately separate from publish: it carries no `environment:`
+  # and no credentials, so a workflow_dispatch rehearsal builds from any ref
+  # without the release-rubygems approval. Publish pushes the exact .gem built
+  # here rather than rebuilding it.
+  build:
+    name: Build gem
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.4.5"
+          # No restored cache in the release path: the published gem must not
+          # depend on bytes a cache could poison.
+          bundler-cache: false
+
+      - name: Verify tag is on main
+        if: github.event_name == 'push'
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - name: Determine and verify version
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          gem_version="$(ruby -Ilib -rhomographic_spoofing/version -e 'puts HomographicSpoofing::VERSION')"
+          if [ "$EVENT_NAME" = push ]; then
+            tag_version="${REF_NAME#v}"
+            if [ "$gem_version" != "$tag_version" ]; then
+              echo "::error::Gem version ($gem_version) does not match tag ($REF_NAME)"
+              exit 1
+            fi
+            echo "Releasing version: $gem_version"
+          else
+            echo "Rehearsal for version: $gem_version"
+          fi
+          echo "version=$gem_version" >> "$GITHUB_OUTPUT"
+
+      - name: Build gem
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          bundle install --jobs 4 --retry 3
+          gem build homographic_spoofing.gemspec
+          ls -l "homographic_spoofing-${VERSION}.gem"
+
+      # `gem push` has no dry run, so verify the built artifact here. The gemspec
+      # collects its files from a Dir glob, so a bad checkout could yield a
+      # well-formed gem with no library in it — which RubyGems accepts and users
+      # cannot require.
+      - name: Verify packaged gem
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ruby -e '
+            require "rubygems/package"
+            spec = Gem::Package.new(ARGV[0]).spec
+            abort "::error::Packaged name is #{spec.name}, expected homographic_spoofing" unless spec.name == "homographic_spoofing"
+            abort "::error::Packaged version is #{spec.version}, expected #{ARGV[1]}" unless spec.version.to_s == ARGV[1]
+            lib = spec.files.grep(%r{\Alib/})
+            abort "::error::Packaged gem contains no lib/ files" if lib.empty?
+            abort "::error::Packaged gem is missing lib/homographic_spoofing.rb" unless lib.include?("lib/homographic_spoofing.rb")
+            puts "Packaged #{spec.full_name}: #{spec.files.size} files, #{lib.size} under lib/"
+          ' "homographic_spoofing-${VERSION}.gem" "$VERSION"
+
+      - name: Dry-run report
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: echo "::notice::Dry run — would publish homographic_spoofing-${VERSION}.gem to RubyGems"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rubygem
+          path: homographic_spoofing-${{ steps.version.outputs.version }}.gem
+          if-no-files-found: error
+          retention-days: 7
+
+  # Trusted publishing: RubyGems exchanges the workflow's OIDC token (id-token:
+  # write) for short-lived credentials. No stored API key, no hand-typed OTP.
+  # The release-rubygems environment is where the owner can require a reviewer.
+  publish:
+    name: Publish to RubyGems
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release-rubygems
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      # No checkout: this job pushes the gem the build job produced, so it needs
+      # Ruby but not the repository.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: rubygem
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.4.5"
+      - uses: rubygems/configure-rubygems-credentials@dc5a8d8553e6ee01fc26761a49e99e733d17954a # v2.1.0
+      - name: Push to RubyGems
+        run: |
+          set +e
+          output="$(gem push "homographic_spoofing-${VERSION}.gem" 2>&1)"
+          status=$?
+          set -e
+          echo "$output"
+          if [ "$status" -eq 0 ]; then
+            echo "Publish succeeded."
+          elif echo "$output" | grep -qi "repushing of gem versions is not allowed\|already been pushed"; then
+            echo "Version already published — treating as success for idempotency."
+          else
+            exit "$status"
+          fi
+          gem exec rubygems-await "homographic_spoofing-${VERSION}.gem"
+      - name: Remove credentials created by the trusted-publishing action
+        if: always()
+        run: ruby -e 'path = File.expand_path("~/.gem/credentials"); File.delete(path) if File.file?(path) && !File.symlink?(path)'
+
+  # A GitHub Release per tag, with the gem attached and notes generated from the
+  # merged PRs since the previous tag. changelog_uri and the human CHANGELOG both
+  # live in the repo; this gives downstreams a signed, dated release page too.
+  github-release:
+    name: GitHub Release
+    needs: [build, publish]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: rubygem
+      - name: Create the release from the tag
+        run: |
+          gem_version="$(ruby -e 'require "rubygems/package"; puts Gem::Package.new(ARGV[0]).spec.version' "homographic_spoofing-${VERSION}.gem")"
+          [ "$gem_version" = "$VERSION" ]
+          gh release create "$TAG" \
+            --repo "$REPO" \
+            --title "$TAG" \
+            --generate-notes \
+            "homographic_spoofing-${VERSION}.gem"

@@ -1,14 +1,59 @@
 #!/usr/bin/env bash
+#
+# Cut a release. This prepares and pushes the commit and tag; the Release
+# workflow (.github/workflows/release.yml) builds the gem and publishes it to
+# RubyGems via trusted publishing (OIDC) — there is no manual `gem push` and no
+# OTP to type here.
+#
+# Usage: bin/release X.Y.Z
 
-VERSION=$1
+set -euo pipefail
 
-printf "module HomographicSpoofing\n  VERSION = \"$VERSION\"\nend\n" > ./lib/homographic_spoofing/version.rb
-bundle
-git add Gemfile.lock lib/homographic_spoofing/version.rb
-git commit -m "Bump version for $VERSION"
-git push
-git tag v$VERSION
-git push --tags
-gem build homographic_spoofing
-gem push "homographic_spoofing-$VERSION.gem" --host https://rubygems.org
-rm "homographic_spoofing-$VERSION.gem"
+VERSION="${1:-}"
+
+if ! printf '%s' "$VERSION" | grep --extended-regexp --quiet '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
+  echo "Usage: bin/release X.Y.Z (exact SemVer, no leading v)" >&2
+  exit 1
+fi
+
+if [ -n "$(git status --porcelain)" ]; then
+  echo "Working tree is not clean; commit or stash before releasing." >&2
+  exit 1
+fi
+
+printf 'module HomographicSpoofing\n  VERSION = "%s"\nend\n' "$VERSION" > lib/homographic_spoofing/version.rb
+
+# Roll the CHANGELOG's Unreleased section into a dated release, refresh the
+# compare links, and open a fresh Unreleased section.
+VERSION="$VERSION" ruby - <<'RUBY'
+version = ENV.fetch("VERSION")
+path = "CHANGELOG.md"
+text = File.read(path)
+date = Time.now.strftime("%Y-%m-%d")
+repo = "https://github.com/basecamp/homographic_spoofing"
+
+abort "CHANGELOG.md has no [Unreleased] section" unless text.include?("## [Unreleased]")
+abort "CHANGELOG.md already documents #{version}" if text.match?(/^## \[#{Regexp.escape(version)}\]/)
+
+prev = text[/^\[Unreleased\]: #{Regexp.escape(repo)}\/compare\/v(\d+\.\d+\.\d+)\.\.\.HEAD/, 1]
+abort "Could not find the [Unreleased] compare link in CHANGELOG.md" unless prev
+
+text = text.sub("## [Unreleased]\n", "## [Unreleased]\n\n## [#{version}] - #{date}\n")
+text = text.sub(
+  "[Unreleased]: #{repo}/compare/v#{prev}...HEAD\n",
+  "[Unreleased]: #{repo}/compare/v#{version}...HEAD\n[#{version}]: #{repo}/compare/v#{prev}...v#{version}\n"
+)
+
+File.write(path, text)
+RUBY
+
+bundle install --quiet
+
+git add Gemfile.lock lib/homographic_spoofing/version.rb CHANGELOG.md
+git commit --message "Release ${VERSION}"
+git tag --annotate "v${VERSION}" --message "homographic_spoofing v${VERSION}"
+
+git push origin HEAD
+git push origin "v${VERSION}"
+
+echo "Pushed v${VERSION}. The Release workflow will build and publish the gem."
