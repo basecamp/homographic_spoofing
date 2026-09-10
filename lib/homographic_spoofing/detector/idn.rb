@@ -57,18 +57,38 @@ class HomographicSpoofing::Detector::Idn
       seen = 0
       from = 0
       while (start = lowercased.index(label, from))
-        span = original_domain[origin[start]..origin[start + label.length - 1]]
-        # `index` can land inside a character whose lowercase spans several (İ →
-        # i̇), so accept only a span that round-trips exactly to the label. Count
-        # valid matches so a label repeated in the domain resolves to the casing
-        # of its own occurrence rather than always the first.
-        if span.downcase == label
-          return span if seen == occurrence
-          seen += 1
+        finish = start + label.length
+        # Match only whole labels, at a "." or edge boundary — otherwise a short
+        # label (e.g. "з") would resolve to its appearance *inside* a longer
+        # sibling ("магаЗин"), corrupting the sibling and leaving the real label
+        # untouched. `index` can also land inside a character whose lowercase
+        # spans several (İ → i̇), so accept only a span that round-trips exactly.
+        # Count valid matches so a repeated label resolves to the casing of its
+        # own occurrence rather than always the first.
+        if label_start?(lowercased, start) && label_end?(lowercased, finish)
+          span = original_domain[origin[start]..origin[finish - 1]]
+          if span.downcase == label
+            return span if seen == occurrence
+            seen += 1
+          end
         end
         from = start + 1
       end
       label
+    end
+
+    # A domain label is bounded by "." separators, the string edges, or the
+    # surrounding whitespace PublicSuffix strips from the raw domain.
+    def label_start?(string, index)
+      index.zero? || label_separator?(string[index - 1])
+    end
+
+    def label_end?(string, index)
+      index >= string.length || label_separator?(string[index])
+    end
+
+    def label_separator?(char)
+      char == "." || char =~ /\s/
     end
 
     def rules
