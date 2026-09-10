@@ -75,6 +75,63 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
     assert_sanitize "РАУ@xn--80a5ak.com", "РАУ@рау.com"
   end
 
+  # A domain-label spoof is punycoded only within the domain: a benign local
+  # part that merely equals the offending label is an independent mailbox and
+  # must be left intact. Per-label domain detection makes this reachable — the
+  # digit-look-alike Cyrillic "з" is a domain spoof, but a plain "з" mailbox is
+  # not — so the replacement must not bleed across the "@".
+  test "domain-label spoof leaves a matching benign local part intact" do
+    assert_sanitize "з@мир.xn--g1a.example.com", "з@мир.з.example.com"
+  end
+
+  test "domain-label spoof leaves a plain-ASCII local part untouched" do
+    assert_sanitize "jacopo@мир.xn--g1a.example.com", "jacopo@мир.з.example.com"
+  end
+
+  # Both sides genuinely spoofed: the confusable "tᴡitter" is detected in the
+  # local part and in the domain, so both are punycoded. Part-scoping narrows
+  # where a replacement lands; it must not drop a real detection on either side.
+  test "spoof present in both local part and domain punycodes both" do
+    assert_sanitize "xn--titter-345b@xn--titter-345b.com", "tᴡitter@tᴡitter.com"
+  end
+
+  # The component span is derived from the parsed addr-spec, not from the last
+  # raw "@": a trailing RFC comment carrying its own "@" must not move the domain
+  # region off the real host and leave the spoof unsanitized.
+  test "spoofed domain is sanitized despite a trailing comment containing an at-sign" do
+    assert_sanitize "user@xn--titter-345b.com (contact@work)", "user@tᴡitter.com (contact@work)"
+  end
+
+  # When a quoted display name repeats the addr-spec, the domain span must anchor
+  # on the angle-address — the real recipient — not the first textual occurrence
+  # inside the name, or the spoofed recipient domain is left unsanitized.
+  test "spoofed recipient domain is sanitized when the display name repeats the addr-spec" do
+    assert_sanitize "\"user@tᴡitter.com\" <user@xn--titter-345b.com>", "\"user@tᴡitter.com\" <user@tᴡitter.com>"
+  end
+
+  # The recipient is bounded by the addr-spec's parser-token span, not by
+  # searching for the parsed text, so CFWS around the "@" (which stops the
+  # addr-spec from occurring contiguously) plus a display name that repeats it
+  # cannot divert the replacement onto the name and leave the real recipient
+  # domain spoofed.
+  test "spoofed recipient domain is sanitized despite whitespace before the at-sign" do
+    assert_sanitize "\"bob@tᴡitter.com\" <bob @xn--titter-345b.com>", "\"bob@tᴡitter.com\" <bob @tᴡitter.com>"
+  end
+
+  # A leading comment carrying its own "@" must not be mistaken for the addr-spec
+  # separator; the real mailbox after it is still sanitized.
+  test "spoofed mailbox is sanitized despite a leading comment containing an at-sign" do
+    assert_sanitize "(contact@work) xn--titter-345b@example.com", "(contact@work) tᴡitter@example.com"
+  end
+
+  # A comment inside the domain keeps the parsed domain from occurring
+  # contiguously; the domain span must still stay on the domain so the spoofed
+  # label is punycoded without rewriting the benign mailbox that equals it — the
+  # original bug must not reappear through a CFWS domain.
+  test "domain-label spoof through a domain comment leaves the matching mailbox intact" do
+    assert_sanitize "з@xn--g1a(comment).example.com", "з@з(comment).example.com"
+  end
+
   private
     def assert_sanitize(sanitized, email_address)
       assert_equal sanitized, HomographicSpoofing::Sanitizer::EmailAddress.sanitize(email_address)
