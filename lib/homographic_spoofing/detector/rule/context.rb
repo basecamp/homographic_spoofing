@@ -1,8 +1,12 @@
 class HomographicSpoofing::Detector::Rule::Context
-  attr_reader :label
+  attr_reader :label, :occurrence
 
-  def initialize(label:)
+  # `occurrence` disambiguates labels that repeat within a domain: it is the
+  # zero-based index of this label among identical labels, in left-to-right
+  # order, so the original casing of the right occurrence can be recovered.
+  def initialize(label:, occurrence: 0)
     @label = label
+    @occurrence = occurrence
   end
 
   SCRIPT_COMMON = "Common"

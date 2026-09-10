@@ -321,6 +321,52 @@ class HomographicSpoofing::Detector::IdnTest < ActiveSupport::TestCase
     assert_attack("ძ4000.com")
   end
 
+  test "Mixed-script rules apply per label, not over the whole subdomain chain" do
+    # The `trd` is the full subdomain chain the renderer draws with dots between
+    # labels. Handing rules the combined chain both hides attacks and invents
+    # them; each of these was reclassified by scanning per label instead.
+
+    # Idn::Digits false negative: an all-look-alike digit label (Cyrillic "з"
+    # spoofing "3") was hidden when a benign same-script sibling ("мир") diluted
+    # the combined chain out of the "only digits or look-alikes" check.
+    assert_attack("мир.з.example.com", reason: "digits")
+    assert_attack("мир.з.example.net", reason: "digits")
+    assert_safe("мир.example.com")  # the benign sibling alone stays safe
+    assert_safe("123.example.com")  # plain ASCII-digit label is not a look-alike
+
+    # MixedScripts false positive: two single-script sibling labels (Latin
+    # "shop" + Cyrillic "москва") looked "mixed" only because the chain merged
+    # them; each label is single-script and benign.
+    assert_safe("shop.москва.example.com")
+    assert_safe("shop.москва.почта.example.com")
+    # Real within-label script mixing is still caught.
+    assert_attack("shop.pаypal.example.com", reason: "mixed_scripts")
+
+    # MixedDigits false positive: sibling labels using different digit systems
+    # (Arabic-Indic "٢" and Extended Arabic-Indic "۲"), each single-script on
+    # its own, tripped the cross-label digit-script count.
+    assert_safe("عربي٢.فارسي۲.example.com")
+    # Two digit systems within one label is still a real mixed-digits attack.
+    assert_attack("عربي٢۲.example.com", reason: "mixed_digits")
+
+    # ScriptSpecific false positive: a non-ASCII Latin label ("café") beside a
+    # non-Latin sibling ("мир") is not the "non-ASCII Latin mixing with a
+    # non-Latin script" the rule targets — that mixing happens within one label.
+    assert_safe("café.мир.example.com")
+
+    # Legitimate multi-label domains stay unflagged.
+    assert_safe("www.shop.example.co.uk")
+    assert_safe("login.accounts.example.co.uk")
+    # Confusable anchoring still honours the allowed ccTLD, even as a subdomain.
+    assert_safe("рау.почта.ru")
+    assert_safe("рау.example.москва")
+
+    # Degenerate labels must not raise or spuriously flag.
+    assert_safe("example.com.")     # trailing dot
+    assert_safe("a..b.example.com") # empty middle label
+    assert_safe("example.com")      # single registrable label, no subdomain
+  end
+
   test "PublixSuffix parsing errors" do
     assert_attack("  ", reason: "invalid_domain")
     assert_attack("example|.com", reason: "disallowed_characters")

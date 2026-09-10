@@ -26,7 +26,7 @@ class HomographicSpoofing::Detector::Idn
 
   def detections
     rules.select(&:attack_detected?).map do |rule|
-      HomographicSpoofing::Detector::Detection.new(rule.reason, original_case(rule.label))
+      HomographicSpoofing::Detector::Detection.new(rule.reason, original_case(rule.label, rule.occurrence))
     end
   rescue PublicSuffix::Error
     # Invalid IDN is a spoof.
@@ -45,7 +45,7 @@ class HomographicSpoofing::Detector::Idn
     # lowercased form. This stays correct — and linear — where a fixed offset
     # would not: when a character lowercases to a different length (İ → i̇), and
     # when PublicSuffix stripped surrounding characters the raw domain carries.
-    def original_case(label)
+    def original_case(label, occurrence = 0)
       origin = []
       lowercased = +""
       original_domain.each_char.with_index do |char, index|
@@ -54,15 +54,41 @@ class HomographicSpoofing::Detector::Idn
         downcased.length.times { origin << index }
       end
 
+      seen = 0
       from = 0
       while (start = lowercased.index(label, from))
-        span = original_domain[origin[start]..origin[start + label.length - 1]]
-        # `index` can land inside a character whose lowercase spans several (İ →
-        # i̇), so accept only a span that round-trips exactly to the label.
-        return span if span.downcase == label
+        finish = start + label.length
+        # Match only whole labels, at a "." or edge boundary — otherwise a short
+        # label (e.g. "з") would resolve to its appearance *inside* a longer
+        # sibling ("магаЗин"), corrupting the sibling and leaving the real label
+        # untouched. `index` can also land inside a character whose lowercase
+        # spans several (İ → i̇), so accept only a span that round-trips exactly.
+        # Count valid matches so a repeated label resolves to the casing of its
+        # own occurrence rather than always the first.
+        if label_start?(lowercased, start) && label_end?(lowercased, finish)
+          span = original_domain[origin[start]..origin[finish - 1]]
+          if span.downcase == label
+            return span if seen == occurrence
+            seen += 1
+          end
+        end
         from = start + 1
       end
       label
+    end
+
+    # A domain label is bounded by "." separators, the string edges, or the
+    # surrounding whitespace PublicSuffix strips from the raw domain.
+    def label_start?(string, index)
+      index.zero? || label_separator?(string[index - 1])
+    end
+
+    def label_end?(string, index)
+      index >= string.length || label_separator?(string[index])
+    end
+
+    def label_separator?(char)
+      char == "." || char =~ /\s/
     end
 
     def rules
@@ -85,8 +111,28 @@ class HomographicSpoofing::Detector::Idn
     end
 
     def contexts
-      [ public_suffix.sld, public_suffix.trd ].compact.map do |label|
-        HomographicSpoofing::Detector::Rule::Idn::Context.new(label: label, tld: public_suffix.tld)
+      labels.map do |label, occurrence|
+        HomographicSpoofing::Detector::Rule::Idn::Context.new(label:, tld: public_suffix.tld, occurrence:)
+      end
+    end
+
+    # `trd` is the full subdomain chain ("a.b" in a.b.example.com). Split it on
+    # the same dot the renderer draws so each rule sees one real label rather
+    # than a chain. The mixed-script, confusable and digit rules are per-label:
+    # a combined chain both hides attacks (a benign sibling dilutes an
+    # all-look-alike label out of detection) and invents them (two single-script
+    # sibling labels look "mixed" together though each is safe on its own).
+    #
+    # Labels are kept in left-to-right domain order and paired with the index of
+    # their occurrence among identical labels, so a repeated label recovers the
+    # casing of its own position (see #original_case).
+    def labels
+      ordered = [ *public_suffix.trd&.split("."), public_suffix.sld ].compact.reject(&:empty?)
+      seen = Hash.new(0)
+      ordered.map do |label|
+        occurrence = seen[label]
+        seen[label] += 1
+        [ label, occurrence ]
       end
     end
 
