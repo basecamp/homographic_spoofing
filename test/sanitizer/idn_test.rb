@@ -55,6 +55,13 @@ class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
     assert_sanitize "xn--pple-43d.xn--pple-43d.example.com", "Аpple.аpple.example.com"
   end
 
+  # The offending label's original casing must be recovered at a label boundary,
+  # not from its appearance inside a longer sibling. The standalone "з" is the
+  # attack; the "З" inside "магаЗин" is incidental and must be left intact.
+  test "sanitize an offending label whose lowercase appears inside a sibling label" do
+    assert_sanitize "магаЗин.xn--g1a.example.com", "магаЗин.з.example.com"
+  end
+
   private
     def assert_sanitize(sanitized, domain)
       assert_equal sanitized, HomographicSpoofing::Sanitizer::Idn.sanitize(domain)
