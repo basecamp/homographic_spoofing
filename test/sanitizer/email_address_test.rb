@@ -67,6 +67,14 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
     assert_sanitize "jacopo@xn--pple-43d.xn--pple-43d.example.com", "jacopo@Аpple.аpple.example.com"
   end
 
+  # A benign local part that differs only by case from an offending domain label
+  # must not be punycoded: local parts can be case-sensitive, so rewriting the
+  # mailbox would change the recipient. Matching whole components case-exactly
+  # keeps the domain detection from bleeding across the "@".
+  test "confusable domain label does not mutate a case-variant local part" do
+    assert_sanitize "РАУ@xn--80a5ak.com", "РАУ@рау.com"
+  end
+
   private
     def assert_sanitize(sanitized, email_address)
       assert_equal sanitized, HomographicSpoofing::Sanitizer::EmailAddress.sanitize(email_address)

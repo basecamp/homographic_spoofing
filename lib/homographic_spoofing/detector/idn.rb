@@ -26,7 +26,7 @@ class HomographicSpoofing::Detector::Idn
 
   def detections
     rules.select(&:attack_detected?).map do |rule|
-      HomographicSpoofing::Detector::Detection.new(rule.reason, original_case(rule.label))
+      HomographicSpoofing::Detector::Detection.new(rule.reason, original_case(rule.label, rule.occurrence))
     end
   rescue PublicSuffix::Error
     # Invalid IDN is a spoof.
@@ -45,7 +45,7 @@ class HomographicSpoofing::Detector::Idn
     # lowercased form. This stays correct — and linear — where a fixed offset
     # would not: when a character lowercases to a different length (İ → i̇), and
     # when PublicSuffix stripped surrounding characters the raw domain carries.
-    def original_case(label)
+    def original_case(label, occurrence = 0)
       origin = []
       lowercased = +""
       original_domain.each_char.with_index do |char, index|
@@ -54,12 +54,18 @@ class HomographicSpoofing::Detector::Idn
         downcased.length.times { origin << index }
       end
 
+      seen = 0
       from = 0
       while (start = lowercased.index(label, from))
         span = original_domain[origin[start]..origin[start + label.length - 1]]
         # `index` can land inside a character whose lowercase spans several (İ →
-        # i̇), so accept only a span that round-trips exactly to the label.
-        return span if span.downcase == label
+        # i̇), so accept only a span that round-trips exactly to the label. Count
+        # valid matches so a label repeated in the domain resolves to the casing
+        # of its own occurrence rather than always the first.
+        if span.downcase == label
+          return span if seen == occurrence
+          seen += 1
+        end
         from = start + 1
       end
       label
@@ -85,8 +91,8 @@ class HomographicSpoofing::Detector::Idn
     end
 
     def contexts
-      labels.map do |label|
-        HomographicSpoofing::Detector::Rule::Idn::Context.new(label: label, tld: public_suffix.tld)
+      labels.map do |label, occurrence|
+        HomographicSpoofing::Detector::Rule::Idn::Context.new(label:, tld: public_suffix.tld, occurrence:)
       end
     end
 
@@ -96,8 +102,18 @@ class HomographicSpoofing::Detector::Idn
     # a combined chain both hides attacks (a benign sibling dilutes an
     # all-look-alike label out of detection) and invents them (two single-script
     # sibling labels look "mixed" together though each is safe on its own).
+    #
+    # Labels are kept in left-to-right domain order and paired with the index of
+    # their occurrence among identical labels, so a repeated label recovers the
+    # casing of its own position (see #original_case).
     def labels
-      [ public_suffix.sld, *public_suffix.trd&.split(".") ].compact.reject(&:empty?)
+      ordered = [ *public_suffix.trd&.split("."), public_suffix.sld ].compact.reject(&:empty?)
+      seen = Hash.new(0)
+      ordered.map do |label|
+        occurrence = seen[label]
+        seen[label] += 1
+        [ label, occurrence ]
+      end
     end
 
     def public_suffix
