@@ -85,9 +85,19 @@ class HomographicSpoofing::Detector::Idn
     end
 
     def contexts
-      [ public_suffix.sld, public_suffix.trd ].compact.map do |label|
+      labels.map do |label|
         HomographicSpoofing::Detector::Rule::Idn::Context.new(label: label, tld: public_suffix.tld)
       end
+    end
+
+    # `trd` is the full subdomain chain ("a.b" in a.b.example.com). Split it on
+    # the same dot the renderer draws so each rule sees one real label rather
+    # than a chain. The mixed-script, confusable and digit rules are per-label:
+    # a combined chain both hides attacks (a benign sibling dilutes an
+    # all-look-alike label out of detection) and invents them (two single-script
+    # sibling labels look "mixed" together though each is safe on its own).
+    def labels
+      [ public_suffix.sld, *public_suffix.trd&.split(".") ].compact.reject(&:empty?)
     end
 
     def public_suffix
