@@ -191,8 +191,14 @@ jobs:
         run: |
           gem_version="$(ruby -e 'require "rubygems/package"; puts Gem::Package.new(ARGV[0]).spec.version' "homographic_spoofing-${VERSION}.gem")"
           [ "$gem_version" = "$VERSION" ]
-          gh release create "$TAG" \
-            --repo "$REPO" \
-            --title "$TAG" \
-            --generate-notes \
-            "homographic_spoofing-${VERSION}.gem"
+          # Idempotent, matching the publish job: a re-run after a partial
+          # release attaches the gem to the existing release rather than failing.
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" --repo "$REPO" --clobber "homographic_spoofing-${VERSION}.gem"
+          else
+            gh release create "$TAG" \
+              --repo "$REPO" \
+              --title "$TAG" \
+              --generate-notes \
+              "homographic_spoofing-${VERSION}.gem"
+          fi
