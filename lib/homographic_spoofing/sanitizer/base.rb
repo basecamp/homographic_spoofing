@@ -21,8 +21,33 @@ class HomographicSpoofing::Sanitizer::Base
   private
     attr_reader :field
 
+    # Detections are per label. When the label is a complete component of the
+    # field — a whole domain label or local part, delimited by "." or "@" —
+    # punycode it as that component so an offending label is never replaced as a
+    # substring of a benign sibling (e.g. the Cyrillic digit-look-alike "з" that
+    # also sits inside "магазин"), and every occurrence is sanitized even when
+    # the same spoof repeats in different casing across labels. Components are
+    # matched with String#downcase, which — unlike regexp /i case folding — does
+    # not over-match unrelated case pairs (ſ/s, ᴡ/W). A label that is only a
+    # substring of a component (a display name carrying spaces) has no whole
+    # component to match and falls back to the exact substring replacement.
     def punycode(source, label)
-      source.gsub(label, Dnsruby::Name.punycode(label))
+      key = label.downcase
+      components = source.split(/([.@])/)
+      if components.any? { |component| component_label?(component) && component.strip.downcase == key }
+        components.map { |component| punycode_component(component, key) }.join
+      else
+        source.gsub(label) { Dnsruby::Name.punycode(label) }
+      end
+    end
+
+    def punycode_component(component, key)
+      content = component.strip
+      component_label?(component) && content.downcase == key ? component.sub(content, Dnsruby::Name.punycode(content)) : component
+    end
+
+    def component_label?(component)
+      component != "." && component != "@"
     end
 
     def detector_class

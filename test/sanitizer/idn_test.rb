@@ -41,6 +41,20 @@ class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
     assert_sanitize " xn--pple-43d.com ", " Аpple.com "
   end
 
+  # Per-label detection means the offending label is punycoded as a whole
+  # component, not as a substring: a benign sibling that merely contains the
+  # same character (магазин contains the digit-look-alike Cyrillic "з") must be
+  # left intact.
+  test "sanitize an offending label that is a substring of a benign sibling label" do
+    assert_sanitize "магазин.xn--g1a.example.com", "магазин.з.example.com"
+  end
+
+  # A spoofed label repeated in different casing must be sanitized at every
+  # position, each occurrence punycoded from its own spelling.
+  test "sanitize a confusable label repeated with different casing across labels" do
+    assert_sanitize "xn--pple-43d.xn--pple-43d.example.com", "Аpple.аpple.example.com"
+  end
+
   private
     def assert_sanitize(sanitized, domain)
       assert_equal sanitized, HomographicSpoofing::Sanitizer::Idn.sanitize(domain)
