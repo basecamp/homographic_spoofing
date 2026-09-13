@@ -118,9 +118,13 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: echo "::notice::Dry run — would publish homographic_spoofing-${VERSION}.gem to RubyGems"
 
+      # overwrite: a "Re-run all jobs" keeps the earlier attempt's artifact on the
+      # run, and a second upload under the same name is otherwise rejected before
+      # any of the idempotent publish steps can run.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rubygem
+          overwrite: true
           path: homographic_spoofing-${{ steps.version.outputs.version }}.gem
           if-no-files-found: error
           retention-days: 7
@@ -189,22 +193,50 @@ jobs:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: rubygem
+      # The tag may have been deleted or moved while earlier jobs ran or an
+      # approval waited; the release must point at the commit whose gem was built
+      # and published, on both the create and the recovery path below.
+      - name: Verify the tag still points at the released commit
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          ref="$(gh api "repos/${REPO}/git/ref/tags/${TAG}")"
+          sha="$(jq -r .object.sha <<<"$ref")"
+          if [ "$(jq -r .object.type <<<"$ref")" = tag ]; then
+            sha="$(gh api "repos/${REPO}/git/tags/${sha}" --jq .object.sha)"
+          fi
+          if [ "$sha" != "$SHA" ]; then
+            echo "::error::Tag $TAG points at ${sha:-nothing}, not the released commit $SHA"
+            exit 1
+          fi
+
       - name: Create the release from the tag
         run: |
-          gem_version="$(ruby -e 'require "rubygems/package"; puts Gem::Package.new(ARGV[0]).spec.version' "homographic_spoofing-${VERSION}.gem")"
+          gem="homographic_spoofing-${VERSION}.gem"
+          gem_version="$(ruby -e 'require "rubygems/package"; puts Gem::Package.new(ARGV[0]).spec.version' "$gem")"
           [ "$gem_version" = "$VERSION" ]
-          # Idempotent, matching the publish job: a re-run after a partial
-          # release attaches the gem to the existing release rather than failing.
-          # --verify-tag: without it, gh recreates a tag deleted mid-run at the
-          # default branch head, and the release would point at different source
-          # than the gem that was built and published.
-          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            gh release upload "$TAG" --repo "$REPO" --clobber "homographic_spoofing-${VERSION}.gem"
+          # Idempotent, matching the publish job: a re-run after a partial release
+          # completes the existing release rather than failing. gh creates the
+          # release as a draft, uploads, then publishes, so recovery may find a
+          # draft with or without its asset. An asset already fully uploaded is
+          # left alone — --clobber deletes before it uploads, and a failed
+          # re-upload would lose the good copy — and only a missing or broken one
+          # is replaced; then a still-draft release is published.
+          if release="$(gh release view "$TAG" --repo "$REPO" --json isDraft,assets 2>/dev/null)"; then
+            state="$(jq -r --arg name "$gem" '.assets[] | select(.name == $name) | .state' <<<"$release")"
+            if [ "$state" = uploaded ]; then
+              echo "Release $TAG already carries $gem; leaving it in place."
+            else
+              gh release upload "$TAG" --repo "$REPO" --clobber "$gem"
+            fi
+            if [ "$(jq -r .isDraft <<<"$release")" = true ]; then
+              gh release edit "$TAG" --repo "$REPO" --draft=false
+            fi
           else
             gh release create "$TAG" \
               --repo "$REPO" \
               --title "$TAG" \
               --verify-tag \
               --generate-notes \
-              "homographic_spoofing-${VERSION}.gem"
+              "$gem"
           fi
