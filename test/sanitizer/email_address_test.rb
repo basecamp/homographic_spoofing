@@ -138,6 +138,24 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
     assert_sanitize "(Jacopo‮) \"xn--jacopo-gm0c\" <user@example.com>", "(Jacopo‮) \"Jacopo‮\" <user@example.com>"
   end
 
+  # Inside a comment a lone double quote is plain text, not the start of a quoted
+  # string that would swallow the closing parenthesis and hide the real
+  # angle-address.
+  test "spoofed recipient domain is sanitized when a comment carries an unmatched quote and repeats the addr-spec" do
+    assert_sanitize "(call \"user@tᴡitter.com) Name <user@xn--titter-345b.com>", "(call \"user@tᴡitter.com) Name <user@tᴡitter.com>"
+  end
+
+  # A ">" inside a route's domain literal does not close the angle-address.
+  test "spoofed recipient domain is sanitized behind a route whose domain literal contains a closing angle bracket" do
+    assert_sanitize "\"user@tᴡitter.com\" <@[relay>node]:user@xn--titter-345b.com>", "\"user@tᴡitter.com\" <@[relay>node]:user@tᴡitter.com>"
+  end
+
+  # A bare addr-spec is located outside comments, so a leading comment that
+  # repeats it verbatim does not take the recipient's replacement.
+  test "spoofed bare recipient domain is sanitized when a leading comment repeats the addr-spec" do
+    assert_sanitize "(user@tᴡitter.com) user@xn--titter-345b.com", "(user@tᴡitter.com) user@tᴡitter.com"
+  end
+
   # The recipient is bounded by the addr-spec's parser-token span, not by
   # searching for the parsed text, so CFWS around the "@" (which stops the
   # addr-spec from occurring contiguously) plus a display name that repeats it
