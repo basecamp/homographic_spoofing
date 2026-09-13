@@ -52,12 +52,13 @@ class HomographicSpoofing::Detector::EmailAddress
     # from the parser's *raw* local and domain — which keep the CFWS the stripped
     # forms drop — is by construction a contiguous substring of the field, so its
     # offset pins the mailbox and host spans exactly even when a comment or stray
-    # whitespace sits inside the address. The offset prefers the angle-address, so
-    # a display name that repeats the addr-spec cannot divert the recipient's
-    # replacement onto the name. Only the display name — never the recipient — is
-    # still located by text, since a mislocated name only misplaces a cosmetic
-    # fix. When the field is not a raw string (a Mail::Address handed straight to a
-    # detection query) there is nothing to sanitize, so spans are left nil.
+    # whitespace sits inside the address. The offset is taken inside the structural
+    # angle-address when there is one, so a display name or comment that repeats
+    # the addr-spec cannot divert the recipient's replacement onto itself. Only the
+    # display name — never the recipient — is still located by text (outside any
+    # comment), since a mislocated name only misplaces a cosmetic fix. When the
+    # field is not a raw string (a Mail::Address handed straight to a detection
+    # query) there is nothing to sanitize, so spans are left nil.
     def component_spans(mail_address)
       local, domain, name = mail_address.local, mail_address.domain, mail_address.name
       return {} unless email_address.is_a?(String)
@@ -84,62 +85,77 @@ class HomographicSpoofing::Detector::EmailAddress
       [ nil, nil ]
     end
 
-    # The addr-spec's offset in the field, preferring the angle-address
-    # "<local@domain>" whose "<" is structural — outside every quoted string and
-    # comment. A quoted display name may repeat the addr-spec, bare or bracketed
-    # ("<user@host>" <user@host>), and anchoring on that copy would sanitize the
-    # name while leaving the real recipient spoofed. Fall back to the first bare
-    # occurrence.
+    # The addr-spec's offset in the field. When the field has a structural
+    # angle-address — its "<" outside every quoted string and comment, since a
+    # quoted display name or a comment may itself spell out "<local@domain>" — the
+    # addr-spec is searched for inside it rather than matched as "<addr>", because
+    # an obsolete route ("<@relay:local@domain>") may precede it; a copy of the
+    # addr-spec anywhere else in the field is never the recipient. Without an
+    # angle-address, the first bare occurrence.
     def addr_offset(addr)
-      bracketed = structural_index("<#{addr}>")
-      bracketed ? bracketed + 1 : email_address.index(addr)
+      lt, gt = angle_address
+      if lt
+        at = email_address.index(addr, lt + 1)
+        at if at && at + addr.length <= gt
+      else
+        email_address.index(addr)
+      end
     end
 
-    # The first occurrence of `needle` that starts outside every quoted string
-    # and comment in the field.
-    def structural_index(needle)
-      enclosed = enclosed_positions
-      from = 0
+    # The offsets of the "<" and ">" of the structural angle-address, or nil when
+    # the field has none.
+    def angle_address
+      lt = structural_index("<")
+      gt = structural_index(">", from: lt) if lt
+      [ lt, gt ] if lt && gt
+    end
+
+    # The first occurrence of `needle` at or after `from` that starts outside
+    # every quoted string and comment in the field.
+    def structural_index(needle, from: 0)
+      quoted, commented = enclosures
       while (at = email_address.index(needle, from))
-        return at unless enclosed[at]
+        return at unless quoted[at] || commented[at]
         from = at + 1
       end
       nil
     end
 
-    # Which character offsets of the field sit inside a quoted string or a
-    # (nestable) comment, delimiters included, honoring backslash escapes in both.
-    def enclosed_positions
-      enclosed = Array.new(email_address.length, false)
-      quoted, depth, escaped = false, 0, false
-      email_address.each_char.with_index do |char, i|
-        enclosed[i] = quoted || depth > 0
-        if escaped
-          escaped = false
-        elsif char == "\\" && enclosed[i]
-          escaped = true
-        elsif quoted
-          quoted = false if char == '"'
-        elsif char == '"'
-          quoted, enclosed[i] = true, true
-        elsif char == "("
-          depth, enclosed[i] = depth + 1, true
-        elsif char == ")" && depth > 0
-          depth -= 1
+    # Which character offsets of the field sit inside a quoted string, and which
+    # inside a (nestable) comment — delimiters included, honoring backslash
+    # escapes in both.
+    def enclosures
+      @enclosures ||= begin
+        quoted, commented = Array.new(email_address.length, false), Array.new(email_address.length, false)
+        in_quote, depth, escaped = false, 0, false
+        email_address.each_char.with_index do |char, i|
+          quoted[i], commented[i] = in_quote, depth > 0
+          if escaped
+            escaped = false
+          elsif char == "\\" && (in_quote || depth > 0)
+            escaped = true
+          elsif in_quote
+            in_quote = false if char == '"'
+          elsif char == '"'
+            in_quote = quoted[i] = true
+          elsif char == "("
+            depth, commented[i] = depth + 1, true
+          elsif char == ")" && depth > 0
+            depth -= 1
+          end
         end
+        [ quoted, commented ]
       end
-      enclosed
     end
 
     # Fallback when the parser yields no raw addr-spec: bound the components by the
     # structural delimiters instead. The addr-spec sits between the angle brackets
     # when present (split at its "@"), otherwise leads the field at the first "@".
     def structural_spans(local, domain, name)
-      lt = email_address.rindex("<")
-      gt = email_address.index(">", lt) if lt
-      at = email_address.index("@", lt || 0)
+      lt, gt = angle_address
+      at = structural_index("@", from: lt || 0)
 
-      if lt && gt && at && at < gt
+      if lt && at && at < gt
         { name:   (locate(name, avoid: [ lt, gt - lt + 1 ]) if name),
           local:  ([ lt + 1, at - lt - 1 ] if local),
           domain: ([ at + 1, gt - at - 1 ] if domain) }
@@ -152,13 +168,16 @@ class HomographicSpoofing::Detector::EmailAddress
       end
     end
 
-    # The first occurrence of `text` in the field at or after `from` whose span
-    # does not fall inside `avoid` (the angle-address, when locating a display
-    # name that shares a spelling with the mailbox or host).
+    # The first occurrence of `text` in the field at or after `from` that is
+    # neither inside a comment (leading CFWS may repeat a display name) nor inside
+    # `avoid` (the angle-address, when locating a display name that shares a
+    # spelling with the mailbox or host).
     def locate(text, from: 0, avoid: nil)
+      commented = enclosures.last
       while (at = email_address.index(text, from))
         span = [ at, text.length ]
-        return span unless avoid && at >= avoid[0] && at < avoid[0] + avoid[1]
+        avoided = avoid && at >= avoid[0] && at < avoid[0] + avoid[1]
+        return span unless avoided || commented[at]
         from = at + 1
       end
       nil
