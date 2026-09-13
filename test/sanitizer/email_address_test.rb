@@ -109,6 +109,22 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
     assert_sanitize "\"user@tᴡitter.com\" <user@xn--titter-345b.com>", "\"user@tᴡitter.com\" <user@tᴡitter.com>"
   end
 
+  # A quoted display name or a comment may itself carry the bracketed addr-spec;
+  # the angle-address lookup anchors on the structural "<" outside quotes and
+  # comments, so the copy inside the name cannot capture the domain span and
+  # leave the real recipient domain spoofed.
+  test "spoofed recipient domain is sanitized when the display name contains the bracketed addr-spec" do
+    assert_sanitize "\"<user@tᴡitter.com>\" <user@xn--titter-345b.com>", "\"<user@tᴡitter.com>\" <user@tᴡitter.com>"
+  end
+
+  test "spoofed recipient domain is sanitized when a comment contains the bracketed addr-spec" do
+    assert_sanitize "(<user@tᴡitter.com>) <user@xn--titter-345b.com>", "(<user@tᴡitter.com>) <user@tᴡitter.com>"
+  end
+
+  test "spoofed recipient domain is sanitized when the display name escapes a quote before the bracketed addr-spec" do
+    assert_sanitize "\"a \\\" <user@tᴡitter.com>\" <user@xn--titter-345b.com>", "\"a \\\" <user@tᴡitter.com>\" <user@tᴡitter.com>"
+  end
+
   # The recipient is bounded by the addr-spec's parser-token span, not by
   # searching for the parsed text, so CFWS around the "@" (which stops the
   # addr-spec from occurring contiguously) plus a display name that repeats it
