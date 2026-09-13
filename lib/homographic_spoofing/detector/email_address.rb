@@ -85,12 +85,50 @@ class HomographicSpoofing::Detector::EmailAddress
     end
 
     # The addr-spec's offset in the field, preferring the angle-address
-    # "<local@domain>" — a quoted display name that repeats the addr-spec anchors
-    # there otherwise, leaving the real recipient unsanitized. Fall back to the
-    # first bare occurrence.
+    # "<local@domain>" whose "<" is structural — outside every quoted string and
+    # comment. A quoted display name may repeat the addr-spec, bare or bracketed
+    # ("<user@host>" <user@host>), and anchoring on that copy would sanitize the
+    # name while leaving the real recipient spoofed. Fall back to the first bare
+    # occurrence.
     def addr_offset(addr)
-      bracketed = email_address.index("<#{addr}>")
+      bracketed = structural_index("<#{addr}>")
       bracketed ? bracketed + 1 : email_address.index(addr)
+    end
+
+    # The first occurrence of `needle` that starts outside every quoted string
+    # and comment in the field.
+    def structural_index(needle)
+      enclosed = enclosed_positions
+      from = 0
+      while (at = email_address.index(needle, from))
+        return at unless enclosed[at]
+        from = at + 1
+      end
+      nil
+    end
+
+    # Which character offsets of the field sit inside a quoted string or a
+    # (nestable) comment, delimiters included, honoring backslash escapes in both.
+    def enclosed_positions
+      enclosed = Array.new(email_address.length, false)
+      quoted, depth, escaped = false, 0, false
+      email_address.each_char.with_index do |char, i|
+        enclosed[i] = quoted || depth > 0
+        if escaped
+          escaped = false
+        elsif char == "\\" && enclosed[i]
+          escaped = true
+        elsif quoted
+          quoted = false if char == '"'
+        elsif char == '"'
+          quoted, enclosed[i] = true, true
+        elsif char == "("
+          depth, enclosed[i] = depth + 1, true
+        elsif char == ")" && depth > 0
+          depth -= 1
+        end
+      end
+      enclosed
     end
 
     # Fallback when the parser yields no raw addr-spec: bound the components by the
