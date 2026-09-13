@@ -91,14 +91,14 @@ class HomographicSpoofing::Detector::EmailAddress
     # addr-spec is searched for inside it rather than matched as "<addr>", because
     # an obsolete route ("<@relay:local@domain>") may precede it; a copy of the
     # addr-spec anywhere else in the field is never the recipient. Without an
-    # angle-address, the first bare occurrence.
+    # angle-address, the first bare occurrence outside any comment.
     def addr_offset(addr)
       lt, gt = angle_address
       if lt
         at = email_address.index(addr, lt + 1)
         at if at && at + addr.length <= gt
       else
-        email_address.index(addr)
+        structural_index(addr)
       end
     end
 
@@ -111,40 +111,46 @@ class HomographicSpoofing::Detector::EmailAddress
     end
 
     # The first occurrence of `needle` at or after `from` that starts outside
-    # every quoted string and comment in the field.
+    # every quoted string, domain literal and comment in the field.
     def structural_index(needle, from: 0)
-      quoted, commented = enclosures
+      enclosed, commented = enclosures
       while (at = email_address.index(needle, from))
-        return at unless quoted[at] || commented[at]
+        return at unless enclosed[at] || commented[at]
         from = at + 1
       end
       nil
     end
 
-    # Which character offsets of the field sit inside a quoted string, and which
-    # inside a (nestable) comment — delimiters included, honoring backslash
-    # escapes in both.
+    # Which character offsets of the field sit inside a quoted string or a domain
+    # literal, and which inside a (nestable) comment. Each opening delimiter is
+    # outside its own enclosure, so a needle may begin with one ('"john"@host');
+    # the closing delimiter is inside. Backslash escapes are honored in all
+    # three, and inside a comment neither quotes nor literals have structure —
+    # only nesting parentheses do.
     def enclosures
       @enclosures ||= begin
-        quoted, commented = Array.new(email_address.length, false), Array.new(email_address.length, false)
-        in_quote, depth, escaped = false, 0, false
+        enclosed, commented = Array.new(email_address.length, false), Array.new(email_address.length, false)
+        closer, depth, escaped = nil, 0, false
         email_address.each_char.with_index do |char, i|
-          quoted[i], commented[i] = in_quote, depth > 0
+          enclosed[i], commented[i] = !closer.nil?, depth > 0
           if escaped
             escaped = false
-          elsif char == "\\" && (in_quote || depth > 0)
+          elsif char == "\\" && (closer || depth > 0)
             escaped = true
-          elsif in_quote
-            in_quote = false if char == '"'
+          elsif closer
+            closer = nil if char == closer
+          elsif depth > 0
+            depth += 1 if char == "("
+            depth -= 1 if char == ")"
           elsif char == '"'
-            in_quote = quoted[i] = true
+            closer = '"'
+          elsif char == "["
+            closer = "]"
           elsif char == "("
-            depth, commented[i] = depth + 1, true
-          elsif char == ")" && depth > 0
-            depth -= 1
+            depth = 1
           end
         end
-        [ quoted, commented ]
+        [ enclosed, commented ]
       end
     end
 
