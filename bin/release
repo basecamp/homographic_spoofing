@@ -21,6 +21,14 @@ if [ -n "$(git status --porcelain)" ]; then
   exit 1
 fi
 
+# The Release workflow publishes only tags that are ancestors of main, so cut
+# the release from an up-to-date main or the tag it pushes is unusable.
+git fetch --quiet origin main
+if [ "$(git rev-parse --abbrev-ref HEAD)" != main ] || [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+  echo "Release from main, up to date with origin/main; the Release workflow rejects tags that are not on main." >&2
+  exit 1
+fi
+
 printf 'module HomographicSpoofing\n  VERSION = "%s"\nend\n' "$VERSION" > lib/homographic_spoofing/version.rb
 
 # Roll the CHANGELOG's Unreleased section into a dated release, refresh the

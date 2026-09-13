@@ -8,9 +8,11 @@ on:
 
 permissions: {}
 
-# One release cut at a time; never cancel a run that may already be publishing.
+# One run per tag, and never cancel one that may already be publishing. The
+# group is per ref: a workflow-wide group would hold only one pending run, so a
+# third tag pushed while one is publishing would evict the second unpublished.
 concurrency:
-  group: release-publishing
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -169,7 +171,7 @@ jobs:
 
   # A GitHub Release per tag, with the gem attached and notes generated from the
   # merged PRs since the previous tag. changelog_uri and the human CHANGELOG both
-  # live in the repo; this gives downstreams a signed, dated release page too.
+  # live in the repo; this gives downstreams a versioned, dated release page too.
   github-release:
     name: GitHub Release
     needs: [build, publish]
@@ -193,12 +195,16 @@ jobs:
           [ "$gem_version" = "$VERSION" ]
           # Idempotent, matching the publish job: a re-run after a partial
           # release attaches the gem to the existing release rather than failing.
+          # --verify-tag: without it, gh recreates a tag deleted mid-run at the
+          # default branch head, and the release would point at different source
+          # than the gem that was built and published.
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             gh release upload "$TAG" --repo "$REPO" --clobber "homographic_spoofing-${VERSION}.gem"
           else
             gh release create "$TAG" \
               --repo "$REPO" \
               --title "$TAG" \
+              --verify-tag \
               --generate-notes \
               "homographic_spoofing-${VERSION}.gem"
           fi
