@@ -125,6 +125,19 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
     assert_sanitize "\"a \\\" <user@tᴡitter.com>\" <user@xn--titter-345b.com>", "\"a \\\" <user@tᴡitter.com>\" <user@tᴡitter.com>"
   end
 
+  # An obsolete route between "<" and the addr-spec means "<local@domain>" never
+  # occurs literally; the addr-spec is found inside the structural angle-address
+  # rather than by an unrestricted search that would land on the name's copy.
+  test "spoofed recipient domain is sanitized behind an obsolete route when the display name repeats the addr-spec" do
+    assert_sanitize "\"user@tᴡitter.com\" <@example.org:user@xn--titter-345b.com>", "\"user@tᴡitter.com\" <@example.org:user@tᴡitter.com>"
+  end
+
+  # Leading CFWS may repeat the display name; the name is located outside any
+  # comment so the spoofed name itself is punycoded, not the comment's copy.
+  test "spoofed display name is sanitized when a leading comment repeats it" do
+    assert_sanitize "(Jacopo‮) \"xn--jacopo-gm0c\" <user@example.com>", "(Jacopo‮) \"Jacopo‮\" <user@example.com>"
+  end
+
   # The recipient is bounded by the addr-spec's parser-token span, not by
   # searching for the parsed text, so CFWS around the "@" (which stops the
   # addr-spec from occurring contiguously) plus a display name that repeats it
