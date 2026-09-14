@@ -127,7 +127,9 @@ jobs:
           overwrite: true
           path: homographic_spoofing-${{ steps.version.outputs.version }}.gem
           if-no-files-found: error
-          retention-days: 7
+          # Long enough for the release-rubygems approval to wait; the publish job
+          # downloads this artifact after approval.
+          retention-days: 30
 
   # Trusted publishing: RubyGems exchanges the workflow's OIDC token (id-token:
   # write) for short-lived credentials. No stored API key, no hand-typed OTP.
@@ -187,10 +189,14 @@ jobs:
           else
             exit "$status"
           fi
-          gem exec rubygems-await "homographic_spoofing-${VERSION}.gem"
       - name: Remove credentials created by the trusted-publishing action
         if: always()
         run: ruby -e 'path = File.expand_path("~/.gem/credentials"); File.delete(path) if File.file?(path) && !File.symlink?(path)'
+      # Pinned, and run only after the credentials are gone: `gem exec` fetches
+      # the newest version of an unpinned gem, which must not execute in a job
+      # that holds publishing credentials.
+      - name: Wait for the gem to become available
+        run: gem exec --version 0.5.4 -- rubygems-await "homographic_spoofing-${VERSION}.gem"
 
   # A GitHub Release per tag, with the gem attached and notes generated from the
   # merged PRs since the previous tag. changelog_uri and the human CHANGELOG both
