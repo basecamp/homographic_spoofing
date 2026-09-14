@@ -174,12 +174,17 @@ class HomographicSpoofing::Detector::EmailAddress
       end
     end
 
-    # The first occurrence of `text` in the field at or after `from` that is
-    # neither inside a comment (leading CFWS may repeat a display name) nor inside
+    # The first occurrence of `text` in the field at or after `from` outside
     # `avoid` (the angle-address, when locating a display name that shares a
-    # spelling with the mailbox or host).
+    # spelling with the mailbox or host), preferring one outside any comment —
+    # leading CFWS may repeat a display name — but accepting one inside a comment
+    # when that is the only place it occurs, since the parser takes a display
+    # name from a trailing comment ("user@host (Name)").
     def locate(text, from: 0, avoid: nil)
-      commented = enclosures.last
+      locate_outside(text, from:, avoid:, commented: enclosures.last) || locate_outside(text, from:, avoid:)
+    end
+
+    def locate_outside(text, from:, avoid:, commented: [])
       while (at = email_address.index(text, from))
         span = [ at, text.length ]
         avoided = avoid && at >= avoid[0] && at < avoid[0] + avoid[1]

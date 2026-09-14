@@ -169,6 +169,20 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
     assert_sanitize "user@магазин.xn--g1a(comment).example.com", "user@магазин.з(comment).example.com"
   end
 
+  # A comment's own text may carry dots; label boundaries are the dots outside
+  # comments, so the offending label still matches as a whole component and
+  # the benign sibling is left alone.
+  test "domain-label spoof with an attached dotted comment leaves a benign sibling containing the label intact" do
+    assert_sanitize "user@магазин.xn--g1a(note.example).example.com", "user@магазин.з(note.example).example.com"
+  end
+
+  # The parser takes a display name from a trailing comment; when that is the
+  # only place the name occurs, its span is the comment, so a name detection
+  # never widens into a whole-field rewrite of an identical, accepted mailbox.
+  test "spoofed display name from a trailing comment is sanitized without rewriting the matching mailbox" do
+    assert_sanitize "á́́@example.com (xn--1ca20ia)", "á́́@example.com (á́́)"
+  end
+
   # The recipient is bounded by the addr-spec's parser-token span, not by
   # searching for the parsed text, so CFWS around the "@" (which stops the
   # addr-spec from occurring contiguously) plus a display name that repeats it
