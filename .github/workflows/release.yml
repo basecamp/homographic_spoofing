@@ -196,7 +196,7 @@ jobs:
       # the newest version of an unpinned gem, which must not execute in a job
       # that holds publishing credentials.
       - name: Wait for the gem to become available
-        run: gem exec --version 0.5.4 -- rubygems-await "homographic_spoofing-${VERSION}.gem"
+        run: gem exec rubygems-await:0.5.4 "homographic_spoofing-${VERSION}.gem"
 
   # A GitHub Release per tag, with the gem attached and notes generated from the
   # merged PRs since the previous tag. changelog_uri and the human CHANGELOG both
