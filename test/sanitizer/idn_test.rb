@@ -62,6 +62,14 @@ class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
     assert_sanitize "магаЗин.xn--g1a.example.com", "магаЗин.з.example.com"
   end
 
+  # The email-address path scopes each replacement to the component it came
+  # from; the bare-IDN path has a single component — the whole domain — so
+  # part-scoping is a no-op here and this stays identical: the offending label
+  # "з" is punycoded, its benign sibling "мир" untouched.
+  test "part-scoping does not change bare-IDN sanitizing" do
+    assert_sanitize "мир.xn--g1a.example.com", "мир.з.example.com"
+  end
+
   private
     def assert_sanitize(sanitized, domain)
       assert_equal sanitized, HomographicSpoofing::Sanitizer::Idn.sanitize(domain)
