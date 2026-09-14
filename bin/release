@@ -61,7 +61,8 @@ git add Gemfile.lock lib/homographic_spoofing/version.rb CHANGELOG.md
 git commit --message "Release ${VERSION}"
 git tag --annotate "v${VERSION}" --message "homographic_spoofing v${VERSION}"
 
-git push origin HEAD
-git push origin "v${VERSION}"
+# One atomic push: a rejected tag must not leave the release commit on main
+# with no tag to drive the workflow.
+git push --atomic origin HEAD "v${VERSION}"
 
 echo "Pushed v${VERSION}. The Release workflow will build and publish the gem."

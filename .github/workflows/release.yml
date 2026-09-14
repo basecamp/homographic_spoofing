@@ -153,6 +153,25 @@ jobs:
       - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
         with:
           ruby-version: "3.4.5"
+      # Last check before the irreversible step: the tag may have been deleted or
+      # moved while the release-rubygems approval waited, and the check in the
+      # github-release job runs too late to undo a publish.
+      - name: Verify the tag still points at the released commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          ref="$(gh api "repos/${REPO}/git/ref/tags/${TAG}")"
+          sha="$(jq -r .object.sha <<<"$ref")"
+          if [ "$(jq -r .object.type <<<"$ref")" = tag ]; then
+            sha="$(gh api "repos/${REPO}/git/tags/${sha}" --jq .object.sha)"
+          fi
+          if [ "$sha" != "$SHA" ]; then
+            echo "::error::Tag $TAG points at ${sha:-nothing}, not the released commit $SHA"
+            exit 1
+          fi
       - uses: rubygems/configure-rubygems-credentials@dc5a8d8553e6ee01fc26761a49e99e733d17954a # v2.1.0
       - name: Push to RubyGems
         run: |
