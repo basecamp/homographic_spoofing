@@ -49,15 +49,24 @@ class HomographicSpoofing::Sanitizer::Base
     # spaces) has no whole component to match and falls back to exact substring
     # replacement.
     def replace_label(region, label)
-      if region.split(".").any? { |component| bare(component) == label }
-        region.split(/(\.)/).map { |component| bare(component) == label ? component.sub(label, Dnsruby::Name.punycode(label)) : component }.join
+      if region.split(LABEL_DOT).any? { |component| bare(component) == label }
+        region.split(/(#{LABEL_DOT})/).map { |component| bare(component) == label ? punycode_label(component, label) : component }.join
       else
         region.gsub(label) { Dnsruby::Name.punycode(label) }
       end
     end
 
+    # A "." that separates labels: one outside any comment, since a comment's own
+    # text may carry dots.
+    LABEL_DOT = /\.(?![^()]*\))/
+
     def bare(component)
       component.gsub(/\([^)]*\)/, "").strip
+    end
+
+    # Rewrite the label itself, past any leading CFWS that may repeat it.
+    def punycode_label(component, label)
+      component.sub(/\A(?:\([^)]*\)|\s)*\K#{Regexp.escape(label)}/, Dnsruby::Name.punycode(label))
     end
 
     def detector_class
