@@ -40,16 +40,24 @@ class HomographicSpoofing::Sanitizer::Base
     # so an offending label is never rewritten as a substring of a benign sibling
     # (the Cyrillic digit-look-alike "з" that also sits inside "магазин"), and
     # every matching component is punycoded from its own spelling — case-exact,
-    # so a spoof repeated in different casing is handled per occurrence. A label
-    # that is only a substring of a component (a display name carrying spaces)
-    # has no whole component to match and falls back to exact substring
-    # replacement. The surrounding whitespace PublicSuffix strips is preserved.
+    # so a spoof repeated in different casing is handled per occurrence. A
+    # component is compared with its CFWS — comments and surrounding whitespace,
+    # which the parser drops from the label it reports — set aside, and only the
+    # label itself is rewritten, so "з(comment)" is punycoded at the label and
+    # a comment beside it never sends the replacement into a benign sibling. A
+    # label that is only a substring of a component (a display name carrying
+    # spaces) has no whole component to match and falls back to exact substring
+    # replacement.
     def replace_label(region, label)
-      if region.split(".").any? { |component| component.strip == label }
-        region.split(/(\.)/).map { |component| component.strip == label ? component.sub(label, Dnsruby::Name.punycode(label)) : component }.join
+      if region.split(".").any? { |component| bare(component) == label }
+        region.split(/(\.)/).map { |component| bare(component) == label ? component.sub(label, Dnsruby::Name.punycode(label)) : component }.join
       else
         region.gsub(label) { Dnsruby::Name.punycode(label) }
       end
+    end
+
+    def bare(component)
+      component.gsub(/\([^)]*\)/, "").strip
     end
 
     def detector_class

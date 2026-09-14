@@ -95,7 +95,7 @@ class HomographicSpoofing::Detector::EmailAddress
     def addr_offset(addr)
       lt, gt = angle_address
       if lt
-        at = email_address.index(addr, lt + 1)
+        at = structural_index(addr, from: lt + 1)
         at if at && at + addr.length <= gt
       else
         structural_index(addr)
