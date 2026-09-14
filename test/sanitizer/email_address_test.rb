@@ -156,6 +156,19 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
     assert_sanitize "(user@tᴡitter.com) user@xn--titter-345b.com", "(user@tᴡitter.com) user@tᴡitter.com"
   end
 
+  # CFWS inside the angle-address before an obsolete route may repeat the
+  # addr-spec; the search inside the brackets skips comments too.
+  test "spoofed recipient domain is sanitized when a comment inside the angle-address repeats the addr-spec" do
+    assert_sanitize "<(user@tᴡitter.com) @example.org:user@xn--titter-345b.com>", "<(user@tᴡitter.com) @example.org:user@tᴡitter.com>"
+  end
+
+  # A comment attached to the offending label does not stop it matching as a
+  # whole component, so the replacement stays at the label and never rewrites
+  # the same letters inside a benign sibling label.
+  test "domain-label spoof with an attached comment leaves a benign sibling containing the label intact" do
+    assert_sanitize "user@магазин.xn--g1a(comment).example.com", "user@магазин.з(comment).example.com"
+  end
+
   # The recipient is bounded by the addr-spec's parser-token span, not by
   # searching for the parsed text, so CFWS around the "@" (which stops the
   # addr-spec from occurring contiguously) plus a display name that repeats it
