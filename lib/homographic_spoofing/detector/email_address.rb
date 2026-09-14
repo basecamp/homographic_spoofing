@@ -174,24 +174,29 @@ class HomographicSpoofing::Detector::EmailAddress
       end
     end
 
-    # The first occurrence of `text` in the field at or after `from` outside
-    # `avoid` (the angle-address, when locating a display name that shares a
-    # spelling with the mailbox or host), preferring one outside any comment —
-    # leading CFWS may repeat a display name — but accepting one inside a comment
-    # when that is the only place it occurs, since the parser takes a display
-    # name from a trailing comment ("user@host (Name)").
+    # The first occurrence of `text` in the field at or after `from` that is
+    # outside every comment and outside `avoid` (the addr-spec, when locating a
+    # display name that shares a spelling with the mailbox or host) — leading
+    # CFWS may repeat a display name. Failing that, the first occurrence inside a
+    # comment, anywhere: the parser takes a display name from a trailing comment
+    # ("user@host (Name)"), which its raw domain token also carries, and a comment
+    # is never the mailbox or host even when it sits inside `avoid`.
     def locate(text, from: 0, avoid: nil)
-      locate_outside(text, from:, avoid:, commented: enclosures.last) || locate_outside(text, from:, avoid:)
+      commented = enclosures.last
+      locate_where(text, from:) { |at| !commented[at] && !inside?(at, avoid) } ||
+        locate_where(text, from:) { |at| commented[at] }
     end
 
-    def locate_outside(text, from:, avoid:, commented: [])
+    def locate_where(text, from:)
       while (at = email_address.index(text, from))
-        span = [ at, text.length ]
-        avoided = avoid && at >= avoid[0] && at < avoid[0] + avoid[1]
-        return span unless avoided || commented[at]
+        return [ at, text.length ] if yield(at)
         from = at + 1
       end
       nil
+    end
+
+    def inside?(at, span)
+      span && at >= span[0] && at < span[0] + span[1]
     end
 
     def mail_address_wrap(email_address)
