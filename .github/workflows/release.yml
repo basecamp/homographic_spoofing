@@ -147,14 +147,13 @@ jobs:
     env:
       VERSION: ${{ needs.build.outputs.version }}
     steps:
-      # No checkout: this job pushes the gem the build job produced, so it needs
-      # Ruby but not the repository.
+      # No checkout: this job pushes the gem the build job produced. No
+      # setup-ruby either: it downloads a Ruby build at run time, and anything
+      # that runs here can mint this job's OIDC token, so `gem push` uses the
+      # runner image's own Ruby.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: rubygem
-      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
-        with:
-          ruby-version: "3.4.5"
       # Last check before the irreversible step: the tag may have been deleted or
       # moved while the release-rubygems approval waited, and the check in the
       # github-release job runs too late to undo a publish.
