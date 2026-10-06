@@ -189,21 +189,39 @@ jobs:
           else
             exit "$status"
           fi
+      # Deletes only the credentials file. The trusted-publishing action also
+      # exports the key as RUBYGEMS_API_KEY, BUNDLE_GEM__PUSH_KEY and
+      # GEM_HOST_API_KEY for the rest of this job, so nothing else may run here
+      # after the push; waiting for the index happens in the await job.
       - name: Remove credentials created by the trusted-publishing action
         if: always()
         run: ruby -e 'path = File.expand_path("~/.gem/credentials"); File.delete(path) if File.file?(path) && !File.symlink?(path)'
-      # Pinned, and run only after the credentials are gone: `gem exec` fetches
-      # the newest version of an unpinned gem, which must not execute in a job
-      # that holds publishing credentials.
+
+  # Its own job so that no publishing credential or OIDC token reaches the
+  # third-party code `gem exec` downloads and runs; it gets only the version.
+  await:
+    name: Wait for the gem on RubyGems
+    needs: [build, publish]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: {}
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.4.5"
+      # Pinned: `gem exec` otherwise fetches the newest rubygems-await.
       - name: Wait for the gem to become available
-        run: gem exec rubygems-await:0.5.4 "homographic_spoofing-${VERSION}.gem"
+        run: gem exec rubygems-await:0.5.4 "homographic_spoofing:${VERSION}"
 
   # A GitHub Release per tag, with the gem attached and notes generated from the
   # merged PRs since the previous tag. changelog_uri and the human CHANGELOG both
   # live in the repo; this gives downstreams a versioned, dated release page too.
   github-release:
     name: GitHub Release
-    needs: [build, publish]
+    needs: [build, publish, await]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
