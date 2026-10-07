@@ -27,6 +27,15 @@ class HomographicSpoofing::Detector::LocalTest < ActiveSupport::TestCase
     assert_attack("ѕсоре.boom")   # Cyrillic, Latin
   end
 
+  test "Quotation-mark look-alikes" do
+    # The local part follows the same allowed set as domain labels (UTS #39 email
+    # security profile), so a look-alike for the ASCII apostrophe is flagged here too.
+    assert_safe("o'brien")
+    assert_attack("o\u2019brien")
+    assert_attack("o\u02bcbrien")
+    assert_attack("o\u02bbbrien")
+  end
+
   test "Mixed digits" do
     # 1\u{1D7E4}3rf with Mathematical sans-serif digit two
     assert_attack("1𝟤3rf", reason: "mixed_digits")
