@@ -14,6 +14,12 @@ class HomographicSpoofing::Detector::EmailAddressTest < ActiveSupport::TestCase
     assert_attack "jacopo@t\u{1D21}itter.com" # jacopo@tᴡitter.com
   end
 
+  test "detect quotation-mark look-alikes in the domain" do
+    assert_safe "admin@gmail.com"
+    assert_attack "admin@gmail\u02bc.com" # admin@gmailʼ.com
+    assert_attack "\"Gmail\" <admin@gmail\u02bb.com>" # admin@gmailʻ.com
+  end
+
   test "ignore nil email address parts" do
     # nil name
     assert_safe "jacopo@37signals.com"

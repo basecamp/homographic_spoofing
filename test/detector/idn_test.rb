@@ -44,6 +44,14 @@ class HomographicSpoofing::Detector::IdnTest < ActiveSupport::TestCase
     assert_attack("abc\u2010def.com")
   end
 
+  test "Quotation-mark and letter look-alikes removed by Chromium" do
+    assert_safe("gmail.com")
+    assert_attack("gmail\u02bb.com", reason: "disallowed_characters") # Modifier letter turned comma
+    assert_attack("gmail\u02bc.com", reason: "disallowed_characters") # Modifier letter apostrophe
+    assert_attack("gmail\u02ec.com", reason: "disallowed_characters") # Modifier letter voicing
+    assert_attack("lin\u0138edin.com", reason: "disallowed_characters") # Latin small letter kra
+  end
+
   test "Latin spoof" do
     # ѕсоре.com with ѕсоре in Cyrillic.
     assert_attack("ѕсоре.com")

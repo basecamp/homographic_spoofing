@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sanitize uppercase and mixed-case confusable IDN domains.
 - Scan each domain label independently for script confusables.
 - Anchor allowed-TLD matching to whole TLD labels.
+- Disallow the characters Chromium removes as quotation-mark and letter look-alikes: U+0138 (kra), U+02BB (turned comma), U+02BC (apostrophe) and U+02EC (voicing).
+- Renamed `MOZILLA_DISALLOWED_CHARACTERS` to `DISALLOWED_CHARACTERS`, since the list now combines Mozilla's and Chromium's removals.
 
 ### Security
 

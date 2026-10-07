@@ -6,6 +6,11 @@ class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
     assert_sanitize "twitter.com", "twitter.com"
   end
 
+  test "sanitize quotation-mark look-alikes" do
+    assert_sanitize "gmail.com", "gmail.com"
+    assert_sanitize "xn--gmail-h2c.com", "gmail\u02bc.com"
+  end
+
   test "log violations" do
     logged_io = StringIO.new
     previous_logger, HomographicSpoofing::Sanitizer::Idn.logger = HomographicSpoofing::Sanitizer::Idn.logger, ActiveSupport::Logger.new(logged_io)
