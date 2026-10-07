@@ -1,15 +1,22 @@
 # 3. and 4. of Google Chrome IDN policy See https://util.unicode.org/UnicodeJsps/list-unicodeset.jsp?a=%5B%3AIdentifierStatus%3DAllowed%3A&abb=on&g=&i=
 class HomographicSpoofing::Detector::Rule::DisallowedCharacters < HomographicSpoofing::Detector::Rule::Base
   class << self
-    # See http://kb.mozillazine.org/Network.IDN.blacklist_chars
-    MOZILLA_DISALLOWED_CHARACTERS = Set[
+    # Characters removed from the allowed set. Combines Mozilla's blocklist
+    # (http://kb.mozillazine.org/Network.IDN.blacklist_chars) with the
+    # removals in Chromium's IDNSpoofChecker::SetAllowedUnicodeSet
+    # (components/url_formatter/spoof_checks/idn_spoof_checker.cc).
+    DISALLOWED_CHARACTERS = Set[
       "\u0020", # Space
       "\u00a0", # No-break space
       "\u00bc", # Vulgar fraction one quarter
       "\u00bd", # Vulgar fraction one half
       "\u00be", # Vulgar fraction three quarters
+      "\u0138", # Latin small letter kra (Chromium)
       "\u01c3", # Latin letter retroflex click
+      "\u02bb", # Modifier letter turned comma (Chromium)
+      "\u02bc", # Modifier letter apostrophe (Chromium)
       "\u02d0", # Modifier letter triangular colon
+      "\u02ec", # Modifier letter voicing (Chromium)
       "\u0337", # Combining short solidus overlay
       "\u0338", # Combining long solidus overlay
       "\u0589", # Armenian full stop
@@ -124,7 +131,7 @@ class HomographicSpoofing::Detector::Rule::DisallowedCharacters < HomographicSpo
     ]
 
     def allowed_chars_set
-      @@allowed_chars_set ||= (read_allowed_idn_chars.chars.to_set - MOZILLA_DISALLOWED_CHARACTERS)
+      @@allowed_chars_set ||= (read_allowed_idn_chars.chars.to_set - DISALLOWED_CHARACTERS)
     end
 
     private
