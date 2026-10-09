@@ -233,10 +233,24 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
     assert_sanitize "\"á\\́́\" <á́́@example.com>", "\"á\\́́\" <á́́@example.com>"
   end
 
-  test "spoofed mailbox behind an obsolete route is sanitized within the angle-address" do
-    sanitized = HomographicSpoofing::Sanitizer::EmailAddress.sanitize("Name <@example.org:tᴡitter@example.com>")
-    assert_not_includes sanitized, "tᴡitter"
-    assert sanitized.start_with?("Name <") && sanitized.end_with?("@example.com>"), sanitized
+  test "spoofed mailbox behind an obsolete route is sanitized and the route is kept" do
+    assert_sanitize "Name <@example.org:xn--titter-345b@example.com>", "Name <@example.org:tᴡitter@example.com>"
+  end
+
+  test "spoofed domain in an obsolete route is sanitized and the mailbox is kept" do
+    assert_sanitize "Name <@xn--80a.com:user@example.com>", "Name <@а.com:user@example.com>"
+  end
+
+  test "display name that crosses a comment's edge leaves the mailbox intact" do
+    assert_sanitize "\"á́́)\\user\" <(á́́)user@example.com>", "\"á́́)\\user\" <(á́́)user@example.com>"
+  end
+
+  test "locate a display name that overlaps itself in a leading comment in linear time" do
+    n = 64_000
+    mark = "\u0301"
+    address = "(#{mark * (2 * n)}) \"#{mark * (n / 2)}\\#{mark * (n / 2)}\" <user@example.com>"
+    sanitized = Timeout.timeout(5) { HomographicSpoofing::Sanitizer::EmailAddress.sanitize(address) }
+    assert sanitized.end_with?("<user@example.com>")
   end
 
   test "sanitize an address with a long quoted display name in linear time" do
