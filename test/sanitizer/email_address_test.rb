@@ -1,4 +1,5 @@
 require "test_helper"
+require "timeout"
 
 class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
   test "sanitize name" do
@@ -204,6 +205,24 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
   # original bug must not reappear through a CFWS domain.
   test "domain-label spoof through a domain comment leaves the matching mailbox intact" do
     assert_sanitize "з@xn--g1a(comment).example.com", "з@з(comment).example.com"
+  end
+
+  test "domain-label spoof with a nested comment leaves a benign sibling intact" do
+    assert_sanitize "user@магазин.xn--g1a(outer(inner).note).example.com", "user@магазин.з(outer(inner).note).example.com"
+  end
+
+  test "domain-label spoof with an escaped parenthesis in its comment leaves a benign sibling intact" do
+    assert_sanitize "user@магазин.xn--g1a(a\\).b).example.com", "user@магазин.з(a\\).b).example.com"
+  end
+
+  test "sanitize an address with many offending domain labels in linear time" do
+    labels = [ "з" ] * 5_000
+    sanitized = Timeout.timeout(5) { HomographicSpoofing::Sanitizer::EmailAddress.sanitize("a@#{labels.join(".")}.example.com") }
+    assert_equal "a@#{([ "xn--g1a" ] * 5_000).join(".")}.example.com", sanitized
+  end
+
+  test "sanitize an address with a long run of unclosed comments in linear time" do
+    Timeout.timeout(5) { HomographicSpoofing::Sanitizer::EmailAddress.sanitize("user@з#{"(" * 50_000}.example.com") }
   end
 
   private
