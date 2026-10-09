@@ -301,6 +301,10 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
     assert_sanitize "а(comment).b@xn--80a(note).com", "а(comment).b@а(note).com"
   end
 
+  test "spoofed label sanitized when the parser folds the mailbox into the domain" do
+    assert_sanitize "xn--80a(comment).b@(note)safe.com", "а(comment).b@(note)safe.com"
+  end
+
   test "sanitize nil" do
     assert_nil HomographicSpoofing::Sanitizer::EmailAddress.sanitize(nil)
   end
