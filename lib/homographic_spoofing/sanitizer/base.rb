@@ -22,11 +22,15 @@ class HomographicSpoofing::Sanitizer::Base
     attr_reader :field
 
     # Substitutes whole occurrences only, so a detected label isn't encoded
-    # inside a longer one that merely contains it (а inside академия). A label
-    # in an encoding the pattern can't take (invalid_unicode) is substituted
-    # wherever it appears.
+    # inside a longer one that merely contains it (а inside академия, or ד
+    # inside ד׳שלום): an occurrence must start and end at the edge of the field
+    # or at a separator, such as a dot between domain labels, the @, or the
+    # quotes and brackets around an address. A label in an encoding the pattern
+    # can't take (invalid_unicode) is substituted wherever it appears.
+    SEPARATOR = %q{\s.@<>"',;:()\[\]}
+
     def punycode(source, label)
-      whole_label = /(?<![\p{L}\p{M}\p{N}_-])#{Regexp.escape(label)}(?![\p{L}\p{M}\p{N}_-])/
+      whole_label = /(?<![^#{SEPARATOR}])#{Regexp.escape(label)}(?![^#{SEPARATOR}])/
       source.gsub(whole_label) { Dnsruby::Name.punycode(label) }
     rescue RegexpError, Encoding::CompatibilityError
       source.gsub(label, Dnsruby::Name.punycode(label))

@@ -19,6 +19,8 @@ class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
     assert_sanitize "xn--80a.академия.com", "а.академия.com"
     assert_sanitize "xn--80a.Академия.example.com", "а.Академия.example.com"
     assert_sanitize "xn--80aa0cbo65f.РАУРАӀмузей.mm", "раураӏ.РАУРАӀмузей.mm"
+    assert_sanitize "xn--7db.ד׳שלום.example.com", "ד.ד׳שלום.example.com"
+    assert_sanitize "xn--80a.xn--80a644l.example.com", "а.а\u202e.example.com"
   end
 
   test "sanitize quotation-mark look-alikes" do
