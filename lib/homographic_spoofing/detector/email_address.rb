@@ -68,8 +68,8 @@ class HomographicSpoofing::Detector::EmailAddress
       at = addr_offset(addr) if addr
 
       if at
-        { name:   (locate(name, avoid: [ at, addr.length ]) if name),
-          local:  ([ at, raw_local.length ] if local),
+        { name:   (name_span(name, avoid: [ at, addr.length ]) if name),
+          local:  (local_span(at, raw_local) if local),
           domain: ([ at + raw_local.length + 1, raw_domain.length ] if domain) }
       else
         structural_spans(local, domain, name)
@@ -79,10 +79,36 @@ class HomographicSpoofing::Detector::EmailAddress
     # The raw local and domain of the addr-spec as they appear in the field, CFWS
     # included, from the address parser — or nils when it cannot supply them.
     def raw_addr_spec_parts
-      parsed = Mail::Parsers::AddressListsParser.parse(email_address).addresses.first
-      [ parsed&.local, parsed&.domain ]
+      [ parsed_address&.local, parsed_address&.domain ]
+    end
+
+    def parsed_address
+      return @parsed_address if defined?(@parsed_address)
+      @parsed_address = Mail::Parsers::AddressListsParser.parse(email_address).addresses.first
     rescue StandardError
-      [ nil, nil ]
+      @parsed_address = nil
+    end
+
+    # The mailbox's span. Mail::Address#local keeps an obsolete route
+    # ("@relay:" in "<@relay:local@domain>") in front of the mailbox, and the
+    # local detections carry that text, so the span runs from the route's start
+    # to cover it; without a route it is the raw local part alone.
+    def local_span(at, raw_local)
+      route = parsed_address&.obs_domain_list
+      lt, _gt = angle_address
+      if route.present? && lt && (start = structural_index(route, from: lt + 1)) && start < at
+        [ start, at + raw_local.length - start ]
+      else
+        [ at, raw_local.length ]
+      end
+    end
+
+    # The display name's span. When the name the parser reports is not in the
+    # field as written (it unescapes quoted pairs, so "\\x" reads as "x"), it
+    # stays confined to the text before the angle-address, or to nothing, and
+    # never spreads over the mailbox or host.
+    def name_span(name, avoid: nil)
+      locate(name, avoid:) || [ 0, angle_address&.first || 0 ]
     end
 
     # The addr-spec's offset in the field. When the field has a structural
@@ -114,7 +140,7 @@ class HomographicSpoofing::Detector::EmailAddress
     # every quoted string, domain literal and comment in the field.
     def structural_index(needle, from: 0)
       enclosed, commented = enclosures
-      while (at = email_address.index(needle, from))
+      while (at = index_in_field(needle, from))
         return at unless enclosed[at] || commented[at]
         from = at + 1
       end
@@ -162,11 +188,11 @@ class HomographicSpoofing::Detector::EmailAddress
       at = structural_index("@", from: lt || 0)
 
       if lt && at && at < gt
-        { name:   (locate(name, avoid: [ lt, gt - lt + 1 ]) if name),
+        { name:   (name_span(name, avoid: [ lt, gt - lt + 1 ]) if name),
           local:  ([ lt + 1, at - lt - 1 ] if local),
           domain: ([ at + 1, gt - at - 1 ] if domain) }
       elsif at
-        { name:   (locate(name) if name),
+        { name:   (name_span(name) if name),
           local:  ([ 0, at ] if local),
           domain: (locate(domain, from: at + 1) if domain) }
       else
@@ -188,11 +214,42 @@ class HomographicSpoofing::Detector::EmailAddress
     end
 
     def locate_where(text, from:)
-      while (at = email_address.index(text, from))
+      while (at = index_in_field(text, from))
         return [ at, text.length ] if yield(at)
         from = at + 1
       end
       nil
+    end
+
+    # The first occurrence of `needle` at or after character offset `from`.
+    # String#index converts a character offset by walking a multibyte string
+    # from its start on every call, so a loop of searches over a long field turns
+    # quadratic. Search the field's bytes instead, where an offset costs nothing
+    # and a UTF-8 match always starts on a character boundary, and map between
+    # bytes and characters through tables built once.
+    def index_in_field(needle, from)
+      char_to_byte, byte_to_char = offset_tables
+      return nil if from >= char_to_byte.length
+
+      at = field_bytes.index(needle.b, char_to_byte[from])
+      byte_to_char[at] if at
+    end
+
+    def field_bytes
+      @field_bytes ||= email_address.b
+    end
+
+    def offset_tables
+      @offset_tables ||= begin
+        char_to_byte, byte_to_char = [], []
+        email_address.each_char.with_index do |char, index|
+          char_to_byte << byte_to_char.length
+          char.bytesize.times { byte_to_char << index }
+        end
+        char_to_byte << byte_to_char.length
+        byte_to_char << email_address.length
+        [ char_to_byte, byte_to_char ]
+      end
     end
 
     def inside?(at, span)

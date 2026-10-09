@@ -225,6 +225,26 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
     Timeout.timeout(5) { HomographicSpoofing::Sanitizer::EmailAddress.sanitize("user@з#{"(" * 50_000}.example.com") }
   end
 
+  test "spoofed domain sanitized when the display name comes from a comment inside the domain" do
+    assert_sanitize "user@safe.(xn--1ca20ia)xn--80a.com", "user@safe.(á́́)а.com"
+  end
+
+  test "display name that is not in the field as written leaves the mailbox intact" do
+    assert_sanitize "\"á\\́́\" <á́́@example.com>", "\"á\\́́\" <á́́@example.com>"
+  end
+
+  test "spoofed mailbox behind an obsolete route is sanitized within the angle-address" do
+    sanitized = HomographicSpoofing::Sanitizer::EmailAddress.sanitize("Name <@example.org:tᴡitter@example.com>")
+    assert_not_includes sanitized, "tᴡitter"
+    assert sanitized.start_with?("Name <") && sanitized.end_with?("@example.com>"), sanitized
+  end
+
+  test "sanitize an address with a long quoted display name in linear time" do
+    name = "é<" * 32_000
+    sanitized = Timeout.timeout(5) { HomographicSpoofing::Sanitizer::EmailAddress.sanitize("\"#{name}\" <user@а.com>") }
+    assert_equal "\"#{name}\" <user@xn--80a.com>", sanitized
+  end
+
   private
     def assert_sanitize(sanitized, email_address)
       assert_equal sanitized, HomographicSpoofing::Sanitizer::EmailAddress.sanitize(email_address)
