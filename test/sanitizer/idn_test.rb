@@ -6,6 +6,26 @@ class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
     assert_sanitize "twitter.com", "twitter.com"
   end
 
+  test "sanitize labels under wildcard public suffixes" do
+    assert_sanitize "xn--80aa0cbo65f.mm", "раураӏ.mm"
+    assert_sanitize "xn--80aa0cbo65f.nom.br", "раураӏ.nom.br"
+    assert_sanitize "login.xn--80aa0cbo65f.mm", "login.раураӏ.mm"
+    # The same label in two casings: both are encoded.
+    assert_sanitize "xn--80aa0cbo66e.xn--80aa0cbo65f.mm", "РАУРАӀ.раураӏ.mm"
+  end
+
+  test "sanitize labels with backslashes literally" do
+    domain = Array.new(20) { |i| format("a%02d\\`", i) }.join(".") + ".example.com"
+    assert_sanitize domain, domain
+  end
+
+  test "sanitize labels contained in other detected labels" do
+    # Each label is checked on its own, so a detected label can sit inside a
+    # longer detected one. Both end up encoded.
+    assert_sanitize "xn--80a.xn--80a644l.example.com", "а.а\u202e.example.com"
+    assert_sanitize "xn--80aa0cbo65f.РАУРАӀмузей.mm", "раураӏ.РАУРАӀмузей.mm"
+  end
+
   test "sanitize quotation-mark look-alikes" do
     assert_sanitize "gmail.com", "gmail.com"
     assert_sanitize "xn--gmail-h2c.com", "gmail\u02bc.com"

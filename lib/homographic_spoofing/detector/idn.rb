@@ -25,8 +25,10 @@ class HomographicSpoofing::Detector::Idn
   end
 
   def detections
-    rules.select(&:attack_detected?).map do |rule|
-      HomographicSpoofing::Detector::Detection.new(rule.reason, original_case(rule.label))
+    checked_labels.flat_map do |label, original_label|
+      rules_for(context_for(label)).select(&:attack_detected?).map do |rule|
+        HomographicSpoofing::Detector::Detection.new(rule.reason, original_label)
+      end
     end
   rescue PublicSuffix::Error
     # Invalid IDN is a spoof.
@@ -35,39 +37,6 @@ class HomographicSpoofing::Detector::Idn
 
   private
     attr_reader :domain, :original_domain
-
-    # Detection runs on the lowercased domain, so labels come back lowercased.
-    # Recover the original-cased run of the domain the label occupies, so the
-    # sanitizer can substitute by exact match instead of regexp case folding —
-    # which both over-matches (folds unrelated ASCII, e.g. ſ/s) and under-matches
-    # (misses case pairs folding omits, e.g. Ⱥ/ⱥ). Map each lowercased position
-    # back to the original character it came from, then locate the label in the
-    # lowercased form. This stays correct — and linear — where a fixed offset
-    # would not: when a character lowercases to a different length (İ → i̇), and
-    # when PublicSuffix stripped surrounding characters the raw domain carries.
-    def original_case(label)
-      origin = []
-      lowercased = +""
-      original_domain.each_char.with_index do |char, index|
-        downcased = char.downcase
-        lowercased << downcased
-        downcased.length.times { origin << index }
-      end
-
-      from = 0
-      while (start = lowercased.index(label, from))
-        span = original_domain[origin[start]..origin[start + label.length - 1]]
-        # `index` can land inside a character whose lowercase spans several (İ →
-        # i̇), so accept only a span that round-trips exactly to the label.
-        return span if span.downcase == label
-        from = start + 1
-      end
-      label
-    end
-
-    def rules
-      @rules ||= contexts.flat_map { |ctx| rules_for(ctx) }
-    end
 
     def rules_for(context)
       [
@@ -84,25 +53,54 @@ class HomographicSpoofing::Detector::Idn
       ].map { |klass| klass.new(context) }
     end
 
-    def contexts
-      [ public_suffix.sld, public_suffix.trd ].compact.map do |label|
-        HomographicSpoofing::Detector::Rule::Idn::Context.new(label: label, tld: public_suffix.tld)
-      end
+    def context_for(label)
+      HomographicSpoofing::Detector::Rule::Idn::Context.new(label: label, tld: registry_suffix)
     end
 
-    def public_suffix
-      @public_suffix ||= icann_domain || non_icann_domain
+    # Each label to check, lowercased, paired with the same label as written in
+    # the domain. Detection runs on the lowercased label; the sanitizer
+    # substitutes the label as written, by exact match instead of regexp case
+    # folding, which both over-matches (folds unrelated ASCII, e.g. ſ/s) and
+    # under-matches (misses case pairs folding omits, e.g. Ⱥ/ⱥ). Labels are
+    # paired by position, which holds when a character lowercases to a
+    # different length (İ → i̇), and when the same label appears in two
+    # casings (РАУРАӀ.раураӏ.mm). A label repeated verbatim is checked once.
+    def checked_labels
+      written = original_domain.strip.chomp(".").split(".", -1)
+      labels.each_with_index.filter_map do |label, index|
+        next if label.empty?
+        original_label = written[index]
+        [ label, original_label&.downcase == label ? original_label : label ]
+      end.uniq
     end
 
-    def icann_domain
-      PublicSuffix.parse(domain, ignore_private: true) if PublicSuffix.valid?(domain)
+    def registry_suffix
+      split_domain.first
     end
 
-    def non_icann_domain
-      if PublicSuffix::List.default.find(domain, default: nil, ignore_private: true).present?
-        PublicSuffix::Domain.new(domain)
-      else
-        raise PublicSuffix::DomainInvalid
+    def labels
+      split_domain.last
+    end
+
+    # Splits the domain into the suffix its registry controls and the labels to
+    # its left, each checked on its own as Chrome does. Unlike PublicSuffix.parse:
+    #  - The label a wildcard entry matches (раураӏ in раураӏ.mm, under *.mm) is
+    #    not fixed by the registry, so it is checked like any other label, and
+    #    the registry suffix is only the part the entry spells out (mm).
+    #  - A domain that is itself a public suffix (co.uk, mm) has no label to
+    #    check, and is not an error.
+    #  - Private entries (github.io, *.compute.amazonaws.com) are ignored, so
+    #    names under them are checked like any other name.
+    def split_domain
+      @split_domain ||= begin
+        name = PublicSuffix.normalize(domain)
+        raise name if name.is_a?(PublicSuffix::DomainInvalid)
+
+        rule = PublicSuffix::List.default.find(name, default: nil, ignore_private: true)
+        # Unknown TLD: the default rule applies, and a single label is invalid.
+        registry_suffix = rule ? rule.parts.join(".") : PublicSuffix.parse(name, ignore_private: true).tld
+        left = name.delete_suffix(registry_suffix).delete_suffix(".")
+        [ registry_suffix, left.split(".", -1) ]
       end
     end
 end

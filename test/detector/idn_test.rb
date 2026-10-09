@@ -264,6 +264,58 @@ class HomographicSpoofing::Detector::IdnTest < ActiveSupport::TestCase
     assert_safe("おかが.キギク.co.jp")
   end
 
+  test "Labels under wildcard public suffixes are checked" do
+    # The public suffix list has wildcard entries such as *.mm: every name
+    # directly under .mm is itself a public suffix. The label the wildcard
+    # matches is still a label someone chose, so it must be checked.
+    assert_attack("раураӏ.mm", reason: "script_confusable")
+    assert_attack("раураӏ.nom.br", reason: "script_confusable")
+    assert_attack("раураӏ.sch.uk", reason: "script_confusable")
+    assert_attack("раураӏ.kh", reason: "script_confusable")
+    assert_attack("раураӏ.kawasaki.jp", reason: "script_confusable")
+    # Every rule runs on those labels, not only the script confusable one.
+    assert_attack("paypαl.mm", reason: "mixed_scripts")
+    assert_attack("g oogle.kh", reason: "disallowed_characters")
+    # A label below the wildcard one doesn't hide it.
+    assert_attack("login.раураӏ.mm", reason: "script_confusable")
+    assert_attack("раураӏ.com.mm", reason: "script_confusable")
+    # The wildcard label is not a registry's IDN TLD, so a Cyrillic one doesn't
+    # make Cyrillic look-alikes next to it acceptable.
+    assert_attack("ѕсоре.почта.kh", reason: "script_confusable")
+
+    # Exception entries (!www.ck, !city.kawasaki.jp) keep working.
+    assert_attack("раураӏ.www.ck", reason: "script_confusable")
+    assert_attack("раураӏ.city.kawasaki.jp", reason: "script_confusable")
+
+    # Ordinary names under wildcard suffixes stay safe.
+    assert_safe("mm")
+    assert_safe("com.mm")
+    assert_safe("example.com.mm")
+    assert_safe("www.example.nom.br")
+    assert_safe("school.sch.uk")
+    assert_safe("www.ck")
+    assert_safe("city.kawasaki.jp")
+    assert_safe("င၀ဂခဂ.net.mm")
+    assert_safe("пример.com.kh")
+  end
+
+  test "Names that are themselves private public suffixes are checked" do
+    # Private entries (*.compute.amazonaws.com, github.io) are ordinary names
+    # here, so a name matching one of them still gets its labels checked.
+    assert_attack("раураӏ.compute.amazonaws.com", reason: "script_confusable")
+    assert_safe("github.io")
+    assert_safe("example.compute.amazonaws.com")
+    assert_safe("пример.compute.amazonaws.com")
+  end
+
+  test "Each label is checked on its own" do
+    # Scripts are mixed within a label, not across labels: a Cyrillic label next
+    # to an ASCII one is fine, as in Chrome.
+    assert_safe("пример.foo.example.com")
+    assert_safe("музей.compute.example.com")
+    assert_attack("paypαl.foo.example.com", reason: "mixed_scripts")
+  end
+
   test "Whole script confusable" do
     # Armenian
     assert_attack("ոսւօ.com")

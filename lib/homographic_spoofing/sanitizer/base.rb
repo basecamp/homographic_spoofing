@@ -11,7 +11,9 @@ class HomographicSpoofing::Sanitizer::Base
 
   def sanitize
     result = field.dup
-    detector_class.new(field).detections.each do |detection|
+    # Longest label first: encoding a short label inside a longer detected one
+    # (а inside а\u202e) would leave the longer one unmatched and unencoded.
+    detector_class.new(field).detections.sort_by { -_1.label.length }.each do |detection|
       log(detection.reason, detection.label)
       result = punycode(result, detection.label)
     end
@@ -22,7 +24,9 @@ class HomographicSpoofing::Sanitizer::Base
     attr_reader :field
 
     def punycode(source, label)
-      source.gsub(label, Dnsruby::Name.punycode(label))
+      # A block, so a backslash in the label isn't read as a back-reference.
+      replacement = Dnsruby::Name.punycode(label)
+      source.gsub(label) { replacement }
     end
 
     def detector_class

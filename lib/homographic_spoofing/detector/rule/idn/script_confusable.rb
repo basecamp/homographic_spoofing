@@ -52,7 +52,7 @@ class HomographicSpoofing::Detector::Rule::Idn::ScriptConfusable < HomographicSp
       # # Telugu
       [ /\p{Telu}/, /[౦౧]/, nil ],
       # # Myanmar
-      [ /\p{Mymr}/, /[ခဂငထပဝ၀၂ၔၜ\u1090\u1091\u1095\u1096\u1097]/, /[a-z]+\.mm/ ],
+      [ /\p{Mymr}/, /[ခဂငထပဝ၀၂ၔၜ\u1090\u1091\u1095\u1096\u1097]/, /mm/ ],
       # # Thai
       [ /\p{Thai}/, /[ทนบพรหเแ๐ดลปฟม]/, /th/ ]
     ]
@@ -61,7 +61,7 @@ class HomographicSpoofing::Detector::Rule::Idn::ScriptConfusable < HomographicSp
     # `/su/` matched `.surf`, `/by/` matched `.baby`/`.rugby`, etc., silently
     # disabling single-script confusable detection on those TLDs. The
     # `(?:\A|\.)…\z` boundary keeps multi-label public suffixes working —
-    # `co.th` still matches `/th/`, `com.mm` still matches `/[a-z]+\.mm/`.
+    # `co.th` still matches `/th/`, `com.mm` still matches `/mm/`.
     .map do |script, latin_lookalike, allowed_tlds|
       anchored_tlds = allowed_tlds && /(?:\A|\.)(?:#{allowed_tlds.source})\z/
       Confusable.new script, latin_lookalike, anchored_tlds
