@@ -268,7 +268,8 @@ class HomographicSpoofing::Detector::EmailAddress
 
     # Fallback when the parser yields no raw addr-spec: bound the components by the
     # structural delimiters instead. The addr-spec sits between the angle brackets
-    # when present (split at its "@"), otherwise leads the field at the first "@".
+    # when present (split at its last "@", past any obsolete route), otherwise it
+    # is the whole field, split at the first "@".
     def structural_spans(local, domain, name)
       lt, gt = angle_address
       at = lt ? last_structural_at(lt, gt) : structural_index("@")
@@ -280,7 +281,7 @@ class HomographicSpoofing::Detector::EmailAddress
       elsif at
         { name:   (name_span(name) if name),
           local:  ([ 0, at ] if local),
-          domain: (locate(domain, from: at + 1) if domain) }
+          domain: ([ at + 1, char_count - at - 1 ] if domain) }
       else
         {}
       end
@@ -368,6 +369,10 @@ class HomographicSpoofing::Detector::EmailAddress
 
       at = field_bytes.index(needle.b, char_to_byte[from])
       byte_to_char[at] if at
+    end
+
+    def char_count
+      offset_tables.first.length - 1
     end
 
     def field_bytes
