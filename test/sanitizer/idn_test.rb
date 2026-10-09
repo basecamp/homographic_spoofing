@@ -68,6 +68,10 @@ class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
     assert_sanitize "магаЗин.xn--g1a.example.com", "магаЗин.з.example.com"
   end
 
+  test "sanitize an offending label with inner whitespace in its original casing" do
+    assert_sanitize "xn-- b-6kc.com", "А b.com"
+  end
+
   test "sanitize a domain with many offending labels in linear time" do
     domain = ([ "з" ] * 5_000).join(".") + ".example.com"
     sanitized = Timeout.timeout(5) { HomographicSpoofing::Sanitizer::Idn.sanitize(domain) }

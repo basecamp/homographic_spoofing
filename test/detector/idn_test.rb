@@ -390,6 +390,9 @@ class HomographicSpoofing::Detector::IdnTest < ActiveSupport::TestCase
     assert_safe("x.ノート.example.jp")
     assert_safe("www.パソコン.jp")
     assert_safe("コーン.jp")
+    # Inside a label the check is unchanged: a slash look-alike between Latin
+    # letters is caught even beside "ー".
+    assert_attack("aノーb.example.com", reason: "dangerous_pattern")
 
     # A label never starts with a combining mark; one there attaches to the dot
     # before it.

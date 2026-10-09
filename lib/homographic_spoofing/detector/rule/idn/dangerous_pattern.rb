@@ -12,13 +12,16 @@ class HomographicSpoofing::Detector::Rule::Idn::DangerousPattern < HomographicSp
     # "丿" (CJK unified ideograph, U+4E3F).
     # If {no, so, zo, n} next to a
     # non-Japanese script on either side is disallowed.
-    # Rules see one label at a time, so a label edge counts as a non-Japanese
-    # side: the dot the renderer draws there is not Japanese either. "ー"
-    # (U+30FC) is Common to Unicode's Script property but Japanese in use, so it
-    # counts as a Japanese side, keeping words like "ノート" clear.
-    (?:\A|[^\p{kana}\p{hira}\p{hani}\u30fc])
+    [^\p{kana}\p{hira}\p{hani}]
     [\u30ce\u30f3\u30bd\u30be\u4e36\u4e40\u4e41\u4e3f]
-    (?:[^\p{kana}\p{hira}\p{hani}\u30fc]|\z)/x,
+    [^\p{kana}\p{hira}\p{hani}]/x,
+
+    /# Rules see one label at a time, so a label edge counts as a non-Japanese
+    # side too: the dot the renderer draws there is not Japanese either. Beside
+    # an edge, "ー" (U+30FC, Common to Unicode's Script property but Japanese in
+    # use) counts as Japanese, so words like "ノート" and "コーン" stay clear.
+    \A[\u30ce\u30f3\u30bd\u30be\u4e36\u4e40\u4e41\u4e3f](?:[^\p{kana}\p{hira}\p{hani}\u30fc]|\z)|
+    [^\p{kana}\p{hira}\p{hani}\u30fc][\u30ce\u30f3\u30bd\u30be\u4e36\u4e40\u4e41\u4e3f]\z/x,
 
       /# Disallow three Hiragana letters (U+307[8-A]) or Katakana letters
       # (U+30D[8-A]) that look exactly like each other when they're used
