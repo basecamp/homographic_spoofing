@@ -271,7 +271,7 @@ class HomographicSpoofing::Detector::EmailAddress
     # when present (split at its "@"), otherwise leads the field at the first "@".
     def structural_spans(local, domain, name)
       lt, gt = angle_address
-      at = structural_index("@", from: lt || 0)
+      at = lt ? last_structural_at(lt, gt) : structural_index("@")
 
       if lt && at && at < gt
         { name:   (name_span(name, avoid: [ lt, gt - lt + 1 ]) if name),
@@ -284,6 +284,16 @@ class HomographicSpoofing::Detector::EmailAddress
       else
         {}
       end
+    end
+
+    # The addr-spec's "@" inside the angle-address: the last structural one, since
+    # an obsolete route ("<@relay:local@domain>") puts its own before it.
+    def last_structural_at(lt, gt)
+      last = nil
+      while (at = structural_index("@", from: (last || lt) + 1)) && at < gt
+        last = at
+      end
+      last
     end
 
     # The first occurrence of `text` in the field at or after `from` that lies

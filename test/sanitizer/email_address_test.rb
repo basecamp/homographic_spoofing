@@ -293,6 +293,10 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
     assert_sanitize "user@xn-- -7sb.com (а )", "user@А .com (а )"
   end
 
+  test "spoofed domain sanitized behind an obsolete route when the parser reports no local part" do
+    assert_sanitize "<@example.org:a(comment).b@xn--80a.xn--80a.example.com>", "<@example.org:a(comment).b@а.а.example.com>"
+  end
+
   test "sanitize nil" do
     assert_nil HomographicSpoofing::Sanitizer::EmailAddress.sanitize(nil)
   end
