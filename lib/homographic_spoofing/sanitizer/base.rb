@@ -33,11 +33,19 @@ class HomographicSpoofing::Sanitizer::Base
     # labels is sanitized in time linear in its length.
     def punycode(source, labels)
       components = source.split(/([.@])/)
-      present = components.to_set(&:strip)
+      present = components.to_set(&:strip) | components
       whole, partial = labels.partition { |label| present.include?(label) }
       whole = whole.to_set
 
-      result = components.map { |component| whole.include?(component.strip) ? punycode_component(component) : component }.join
+      result = components.map do |component|
+        if whole.include?(component)
+          Dnsruby::Name.punycode(component)
+        elsif whole.include?(component.strip)
+          punycode_component(component)
+        else
+          component
+        end
+      end.join
       partial.inject(result) { |text, label| text.gsub(label) { Dnsruby::Name.punycode(label) } }
     end
 

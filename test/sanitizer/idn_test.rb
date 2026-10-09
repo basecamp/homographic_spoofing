@@ -78,6 +78,16 @@ class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
     assert_sanitize "xn--\\`1-5cd.example.com", "а\\`1.example.com"
   end
 
+  test "sanitize an offending label that keeps trailing whitespace" do
+    assert_sanitize "xn-- -7sb.com", "А .com"
+  end
+
+  test "sanitize many distinct offending labels with whitespace in linear time" do
+    labels = (1..8_000).map { |i| "а#{i} " }
+    sanitized = Timeout.timeout(5) { HomographicSpoofing::Sanitizer::Idn.sanitize("#{labels.join(".")}.example.com") }
+    assert_equal "#{labels.map { |label| Dnsruby::Name.punycode(label) }.join(".")}.example.com", sanitized
+  end
+
   test "sanitize a domain with many offending labels in linear time" do
     domain = ([ "з" ] * 5_000).join(".") + ".example.com"
     sanitized = Timeout.timeout(5) { HomographicSpoofing::Sanitizer::Idn.sanitize(domain) }

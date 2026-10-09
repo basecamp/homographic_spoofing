@@ -47,13 +47,19 @@ class HomographicSpoofing::Detector::Idn
     end
 
     # Every whole label of the raw domain, in its original casing, grouped by its
-    # lowercased form in left-to-right order. Labels are bounded by "." with the
-    # surrounding whitespace PublicSuffix strips from the raw domain set aside,
-    # never by a match inside a longer sibling ("з" inside "магаЗин"). Built in
-    # one pass, so resolving every detection stays linear in the domain's length.
+    # lowercased form in left-to-right order. Labels are bounded by ".", never by
+    # a match inside a longer sibling ("з" inside "магаЗин"), and keep any
+    # whitespace inside them as PublicSuffix does; only the whitespace it strips
+    # from the ends of the domain is set aside. Built in one pass, so resolving
+    # every detection stays linear in the domain's length.
     def original_labels
-      @original_labels ||= original_domain.split(".").each_with_object({}) do |original, labels|
-        (labels[original.strip.downcase] ||= []) << original.strip
+      @original_labels ||= begin
+        originals = original_domain.split(".", -1)
+        originals[0] = originals[0].lstrip if originals.any?
+        originals[-1] = originals[-1].rstrip if originals.any?
+        originals.each_with_object({}) do |original, labels|
+          (labels[original.downcase] ||= []) << original
+        end
       end
     end
 
