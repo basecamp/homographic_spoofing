@@ -285,6 +285,10 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
     assert_sanitize "<xn--titter-345b(xn--1ca20ia)@example.com>", "<tᴡitter(á́́)@example.com>"
   end
 
+  test "display name ending in an escaped backslash is left as written" do
+    assert_sanitize "\"á́́\\\\\" <user@example.com>", "\"á́́\\\\\" <user@example.com>"
+  end
+
   test "sanitize nil" do
     assert_nil HomographicSpoofing::Sanitizer::EmailAddress.sanitize(nil)
   end

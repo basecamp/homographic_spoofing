@@ -186,11 +186,12 @@ class HomographicSpoofing::Detector::EmailAddress
     end
 
     # The display name's span. When the name the parser reports is not in the
-    # field as written (it unescapes quoted pairs, so "\\x" reads as "x"), it
-    # stays confined to the text before the angle-address, or to nothing, and
-    # never spreads over the mailbox or host.
+    # field as written (it unescapes quoted pairs, so "\\x" reads as "x"), there
+    # is no text to rewrite safely: its span is empty, so the detection is still
+    # reported but the field is left as is rather than rewritten across an
+    # escape or onto the mailbox or host.
     def name_span(name, avoid: nil)
-      locate(name, avoid:) || [ 0, angle_address&.first || 0 ]
+      locate(name, avoid:) || [ 0, 0 ]
     end
 
     # The addr-spec's offset in the field. When the field has a structural
