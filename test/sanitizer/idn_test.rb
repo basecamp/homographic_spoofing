@@ -1,4 +1,5 @@
 require "test_helper"
+require "timeout"
 
 class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
   test "sanitize" do
@@ -44,6 +45,53 @@ class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
   # fixed offset into the domain would miss the label; content matching does not.
   test "sanitize confusable domain with surrounding whitespace" do
     assert_sanitize " xn--pple-43d.com ", " Аpple.com "
+  end
+
+  # Per-label detection means the offending label is punycoded as a whole
+  # component, not as a substring: a benign sibling that merely contains the
+  # same character (магазин contains the digit-look-alike Cyrillic "з") must be
+  # left intact.
+  test "sanitize an offending label that is a substring of a benign sibling label" do
+    assert_sanitize "магазин.xn--g1a.example.com", "магазин.з.example.com"
+  end
+
+  # A spoofed label repeated in different casing must be sanitized at every
+  # position, each occurrence punycoded from its own spelling.
+  test "sanitize a confusable label repeated with different casing across labels" do
+    assert_sanitize "xn--pple-43d.xn--pple-43d.example.com", "Аpple.аpple.example.com"
+  end
+
+  # The offending label's original casing must be recovered at a label boundary,
+  # not from its appearance inside a longer sibling. The standalone "з" is the
+  # attack; the "З" inside "магаЗин" is incidental and must be left intact.
+  test "sanitize an offending label whose lowercase appears inside a sibling label" do
+    assert_sanitize "магаЗин.xn--g1a.example.com", "магаЗин.з.example.com"
+  end
+
+  test "sanitize an offending label with inner whitespace in its original casing" do
+    assert_sanitize "xn-- b-6kc.com", "А b.com"
+  end
+
+  # Punycode keeps ASCII characters as written, so the encoded label is
+  # inserted literally, never read as a replacement pattern ("\\`").
+  test "sanitize an offending label carrying a backslash sequence" do
+    assert_sanitize "xn--\\`1-5cd.example.com", "а\\`1.example.com"
+  end
+
+  test "sanitize an offending label that keeps trailing whitespace" do
+    assert_sanitize "xn-- -7sb.com", "А .com"
+  end
+
+  test "sanitize many distinct offending labels with whitespace in linear time" do
+    labels = (1..8_000).map { |i| "а#{i} " }
+    sanitized = Timeout.timeout(5) { HomographicSpoofing::Sanitizer::Idn.sanitize("#{labels.join(".")}.example.com") }
+    assert_equal "#{labels.map { |label| Dnsruby::Name.punycode(label) }.join(".")}.example.com", sanitized
+  end
+
+  test "sanitize a domain with many offending labels in linear time" do
+    domain = ([ "з" ] * 5_000).join(".") + ".example.com"
+    sanitized = Timeout.timeout(5) { HomographicSpoofing::Sanitizer::Idn.sanitize(domain) }
+    assert_equal ([ "xn--g1a" ] * 5_000).join(".") + ".example.com", sanitized
   end
 
   private

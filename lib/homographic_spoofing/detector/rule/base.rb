@@ -1,5 +1,5 @@
 class HomographicSpoofing::Detector::Rule::Base
-  delegate :scripts, :label, :label_set, to: :@context
+  delegate :scripts, :label, :label_set, :occurrence, to: :@context
 
   def initialize(context)
     @context = context

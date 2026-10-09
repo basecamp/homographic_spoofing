@@ -55,6 +55,26 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
     assert_sanitize "Tᴡitter <xn--titter-345b@twitter.com>", "Tᴡitter <tᴡitter@twitter.com>"
   end
 
+  # Per-label domain detection punycodes the offending label as a whole
+  # component: a benign domain label that merely contains the same character
+  # (магазин contains the digit-look-alike "з") stays intact, and a spoofed
+  # label repeated in different casing is sanitized at every position.
+  test "sanitize a domain label that is a substring of a benign sibling label" do
+    assert_sanitize "jacopo@магазин.xn--g1a.example.com", "jacopo@магазин.з.example.com"
+  end
+
+  test "sanitize a confusable domain label repeated with different casing" do
+    assert_sanitize "jacopo@xn--pple-43d.xn--pple-43d.example.com", "jacopo@Аpple.аpple.example.com"
+  end
+
+  # A benign local part that differs only by case from an offending domain label
+  # must not be punycoded: local parts can be case-sensitive, so rewriting the
+  # mailbox would change the recipient. Matching whole components case-exactly
+  # keeps the domain detection from bleeding across the "@".
+  test "confusable domain label does not mutate a case-variant local part" do
+    assert_sanitize "РАУ@xn--80a5ak.com", "РАУ@рау.com"
+  end
+
   private
     def assert_sanitize(sanitized, email_address)
       assert_equal sanitized, HomographicSpoofing::Sanitizer::EmailAddress.sanitize(email_address)

@@ -1,4 +1,5 @@
 require "test_helper"
+require "timeout"
 
 class HomographicSpoofing::Detector::IdnTest < ActiveSupport::TestCase
   test "Single script" do
@@ -327,6 +328,81 @@ class HomographicSpoofing::Detector::IdnTest < ActiveSupport::TestCase
     assert_attack("օrange.com")
     assert_attack("cuckoօ.com")
     assert_attack("ძ4000.com")
+  end
+
+  test "Mixed-script rules apply per label, not over the whole subdomain chain" do
+    # The `trd` is the full subdomain chain the renderer draws with dots between
+    # labels. Handing rules the combined chain both hides attacks and invents
+    # them; each of these was reclassified by scanning per label instead.
+
+    # Idn::Digits false negative: an all-look-alike digit label (Cyrillic "з"
+    # spoofing "3") was hidden when a benign same-script sibling ("мир") diluted
+    # the combined chain out of the "only digits or look-alikes" check.
+    assert_attack("мир.з.example.com", reason: "digits")
+    assert_attack("мир.з.example.net", reason: "digits")
+    assert_safe("мир.example.com")  # the benign sibling alone stays safe
+    assert_safe("123.example.com")  # plain ASCII-digit label is not a look-alike
+
+    # MixedScripts false positive: two single-script sibling labels (Latin
+    # "shop" + Cyrillic "москва") looked "mixed" only because the chain merged
+    # them; each label is single-script and benign.
+    assert_safe("shop.москва.example.com")
+    assert_safe("shop.москва.почта.example.com")
+    # Real within-label script mixing is still caught.
+    assert_attack("shop.pаypal.example.com", reason: "mixed_scripts")
+
+    # MixedDigits false positive: sibling labels using different digit systems
+    # (Arabic-Indic "٢" and Extended Arabic-Indic "۲"), each single-script on
+    # its own, tripped the cross-label digit-script count.
+    assert_safe("عربي٢.فارسي۲.example.com")
+    # Two digit systems within one label is still a real mixed-digits attack.
+    assert_attack("عربي٢۲.example.com", reason: "mixed_digits")
+
+    # ScriptSpecific false positive: a non-ASCII Latin label ("café") beside a
+    # non-Latin sibling ("мир") is not the "non-ASCII Latin mixing with a
+    # non-Latin script" the rule targets — that mixing happens within one label.
+    assert_safe("café.мир.example.com")
+
+    # Legitimate multi-label domains stay unflagged.
+    assert_safe("www.shop.example.co.uk")
+    assert_safe("login.accounts.example.co.uk")
+    # Confusable anchoring still honours the allowed ccTLD, even as a subdomain.
+    assert_safe("рау.почта.ru")
+    assert_safe("рау.example.москва")
+
+    # Degenerate labels must not raise or spuriously flag.
+    assert_safe("example.com.")     # trailing dot
+    assert_safe("a..b.example.com") # empty middle label
+    assert_safe("example.com")      # single registrable label, no subdomain
+  end
+
+  test "Rules that read a neighbouring character treat a label edge as non-Japanese, non-letter context" do
+    # Slash look-alikes ("ノ", "ソ", "ン", "丿") at the edge of a label sit next to
+    # the dot the renderer draws, which reads as "google.com/" just as a Latin
+    # neighbour would.
+    assert_attack("google.comノ.x.evil.com", reason: "dangerous_pattern")
+    assert_attack("paypal.com.ソ.x.example.com", reason: "dangerous_pattern")
+    assert_attack("google.com.ン.evil.com", reason: "dangerous_pattern")
+    assert_attack("comノ.example.com", reason: "dangerous_pattern")
+    # Japanese words that start or end with one of them stay safe, including
+    # beside the prolonged sound mark "ー".
+    assert_safe("ノート.example.jp")
+    assert_safe("x.ノート.example.jp")
+    assert_safe("www.パソコン.jp")
+    assert_safe("コーン.jp")
+    # Inside a label the check is unchanged: a slash look-alike between Latin
+    # letters is caught even beside "ー".
+    assert_attack("aノーb.example.com", reason: "dangerous_pattern")
+
+    # A label never starts with a combining mark; one there attaches to the dot
+    # before it.
+    assert_attack("a.\u0301b.example.com", reason: "invisible_characters")
+    assert_attack("\u0301b.example.com", reason: "invisible_characters")
+  end
+
+  test "Domains with many labels are checked in linear time" do
+    domain = ([ "з" ] * 5_000).join(".") + ".example.com"
+    Timeout.timeout(5) { assert_equal 5_000, HomographicSpoofing::Detector::Idn.detections(domain).size }
   end
 
   test "PublixSuffix parsing errors" do

@@ -26,7 +26,7 @@ class HomographicSpoofing::Detector::Idn
 
   def detections
     rules.select(&:attack_detected?).map do |rule|
-      HomographicSpoofing::Detector::Detection.new(rule.reason, original_case(rule.label))
+      HomographicSpoofing::Detector::Detection.new(rule.reason, original_case(rule.label, rule.occurrence))
     end
   rescue PublicSuffix::Error
     # Invalid IDN is a spoof.
@@ -37,32 +37,30 @@ class HomographicSpoofing::Detector::Idn
     attr_reader :domain, :original_domain
 
     # Detection runs on the lowercased domain, so labels come back lowercased.
-    # Recover the original-cased run of the domain the label occupies, so the
-    # sanitizer can substitute by exact match instead of regexp case folding —
+    # Recover the original-cased spelling of the label at its own position, so
+    # the sanitizer can substitute by exact match instead of regexp case folding,
     # which both over-matches (folds unrelated ASCII, e.g. ſ/s) and under-matches
-    # (misses case pairs folding omits, e.g. Ⱥ/ⱥ). Map each lowercased position
-    # back to the original character it came from, then locate the label in the
-    # lowercased form. This stays correct — and linear — where a fixed offset
-    # would not: when a character lowercases to a different length (İ → i̇), and
-    # when PublicSuffix stripped surrounding characters the raw domain carries.
-    def original_case(label)
-      origin = []
-      lowercased = +""
-      original_domain.each_char.with_index do |char, index|
-        downcased = char.downcase
-        lowercased << downcased
-        downcased.length.times { origin << index }
-      end
+    # (misses case pairs folding omits, e.g. Ⱥ/ⱥ). A label repeated in the domain
+    # resolves to the casing of its own occurrence, counted left to right.
+    def original_case(label, occurrence = 0)
+      original_labels.fetch(label, [])[occurrence] || label
+    end
 
-      from = 0
-      while (start = lowercased.index(label, from))
-        span = original_domain[origin[start]..origin[start + label.length - 1]]
-        # `index` can land inside a character whose lowercase spans several (İ →
-        # i̇), so accept only a span that round-trips exactly to the label.
-        return span if span.downcase == label
-        from = start + 1
+    # Every whole label of the raw domain, in its original casing, grouped by its
+    # lowercased form in left-to-right order. Labels are bounded by ".", never by
+    # a match inside a longer sibling ("з" inside "магаЗин"), and keep any
+    # whitespace inside them as PublicSuffix does; only the whitespace it strips
+    # from the ends of the domain is set aside. Built in one pass, so resolving
+    # every detection stays linear in the domain's length.
+    def original_labels
+      @original_labels ||= begin
+        originals = original_domain.split(".", -1)
+        originals[0] = originals[0].lstrip if originals.any?
+        originals[-1] = originals[-1].rstrip if originals.any?
+        originals.each_with_object({}) do |original, labels|
+          (labels[original.downcase] ||= []) << original
+        end
       end
-      label
     end
 
     def rules
@@ -85,8 +83,28 @@ class HomographicSpoofing::Detector::Idn
     end
 
     def contexts
-      [ public_suffix.sld, public_suffix.trd ].compact.map do |label|
-        HomographicSpoofing::Detector::Rule::Idn::Context.new(label: label, tld: public_suffix.tld)
+      labels.map do |label, occurrence|
+        HomographicSpoofing::Detector::Rule::Idn::Context.new(label:, tld: public_suffix.tld, occurrence:)
+      end
+    end
+
+    # `trd` is the full subdomain chain ("a.b" in a.b.example.com). Split it on
+    # the same dot the renderer draws so each rule sees one real label rather
+    # than a chain. The mixed-script, confusable and digit rules are per-label:
+    # a combined chain both hides attacks (a benign sibling dilutes an
+    # all-look-alike label out of detection) and invents them (two single-script
+    # sibling labels look "mixed" together though each is safe on its own).
+    #
+    # Labels are kept in left-to-right domain order and paired with the index of
+    # their occurrence among identical labels, so a repeated label recovers the
+    # casing of its own position (see #original_case).
+    def labels
+      ordered = [ *public_suffix.trd&.split("."), public_suffix.sld ].compact.reject(&:empty?)
+      seen = Hash.new(0)
+      ordered.map do |label|
+        occurrence = seen[label]
+        seen[label] += 1
+        [ label, occurrence ]
       end
     end
 
