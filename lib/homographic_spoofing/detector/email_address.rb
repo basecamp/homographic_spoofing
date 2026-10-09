@@ -281,10 +281,19 @@ class HomographicSpoofing::Detector::EmailAddress
       elsif at
         { name:   (name_span(name) if name),
           local:  ([ 0, at ] if local),
-          domain: ([ at + 1, char_count - at - 1 ] if domain) }
+          domain: (bare_domain_span(at, domain) if domain) }
       else
         {}
       end
+    end
+
+    # Everything after the "@" — unless the domain the parser reports carries an
+    # "@" itself, which it does when it folds the mailbox into the domain
+    # ("а(comment).b@(note)safe.com"). The boundary between the parts is then
+    # unknown, so the domain spans the whole field, as every detection did
+    # before spans existed.
+    def bare_domain_span(at, domain)
+      [ at + 1, char_count - at - 1 ] unless domain.include?("@")
     end
 
     # The addr-spec's "@" inside the angle-address: the last structural one, since
