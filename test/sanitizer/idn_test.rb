@@ -1,4 +1,5 @@
 require "test_helper"
+require "timeout"
 
 class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
   test "sanitize" do
@@ -65,6 +66,12 @@ class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
   # attack; the "З" inside "магаЗин" is incidental and must be left intact.
   test "sanitize an offending label whose lowercase appears inside a sibling label" do
     assert_sanitize "магаЗин.xn--g1a.example.com", "магаЗин.з.example.com"
+  end
+
+  test "sanitize a domain with many offending labels in linear time" do
+    domain = ([ "з" ] * 5_000).join(".") + ".example.com"
+    sanitized = Timeout.timeout(5) { HomographicSpoofing::Sanitizer::Idn.sanitize(domain) }
+    assert_equal ([ "xn--g1a" ] * 5_000).join(".") + ".example.com", sanitized
   end
 
   private

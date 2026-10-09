@@ -37,58 +37,24 @@ class HomographicSpoofing::Detector::Idn
     attr_reader :domain, :original_domain
 
     # Detection runs on the lowercased domain, so labels come back lowercased.
-    # Recover the original-cased run of the domain the label occupies, so the
-    # sanitizer can substitute by exact match instead of regexp case folding —
+    # Recover the original-cased spelling of the label at its own position, so
+    # the sanitizer can substitute by exact match instead of regexp case folding,
     # which both over-matches (folds unrelated ASCII, e.g. ſ/s) and under-matches
-    # (misses case pairs folding omits, e.g. Ⱥ/ⱥ). Map each lowercased position
-    # back to the original character it came from, then locate the label in the
-    # lowercased form. This stays correct — and linear — where a fixed offset
-    # would not: when a character lowercases to a different length (İ → i̇), and
-    # when PublicSuffix stripped surrounding characters the raw domain carries.
+    # (misses case pairs folding omits, e.g. Ⱥ/ⱥ). A label repeated in the domain
+    # resolves to the casing of its own occurrence, counted left to right.
     def original_case(label, occurrence = 0)
-      origin = []
-      lowercased = +""
-      original_domain.each_char.with_index do |char, index|
-        downcased = char.downcase
-        lowercased << downcased
-        downcased.length.times { origin << index }
+      original_labels.fetch(label, [])[occurrence] || label
+    end
+
+    # Every whole label of the raw domain, in its original casing, grouped by its
+    # lowercased form in left-to-right order. Labels are bounded by "." or by the
+    # surrounding whitespace PublicSuffix strips from the raw domain, never by a
+    # match inside a longer sibling ("з" inside "магаЗин"). Built in one pass, so
+    # resolving every detection stays linear in the length of the domain.
+    def original_labels
+      @original_labels ||= original_domain.split(/[.\s]/).each_with_object({}) do |original, labels|
+        (labels[original.downcase] ||= []) << original
       end
-
-      seen = 0
-      from = 0
-      while (start = lowercased.index(label, from))
-        finish = start + label.length
-        # Match only whole labels, at a "." or edge boundary — otherwise a short
-        # label (e.g. "з") would resolve to its appearance *inside* a longer
-        # sibling ("магаЗин"), corrupting the sibling and leaving the real label
-        # untouched. `index` can also land inside a character whose lowercase
-        # spans several (İ → i̇), so accept only a span that round-trips exactly.
-        # Count valid matches so a repeated label resolves to the casing of its
-        # own occurrence rather than always the first.
-        if label_start?(lowercased, start) && label_end?(lowercased, finish)
-          span = original_domain[origin[start]..origin[finish - 1]]
-          if span.downcase == label
-            return span if seen == occurrence
-            seen += 1
-          end
-        end
-        from = start + 1
-      end
-      label
-    end
-
-    # A domain label is bounded by "." separators, the string edges, or the
-    # surrounding whitespace PublicSuffix strips from the raw domain.
-    def label_start?(string, index)
-      index.zero? || label_separator?(string[index - 1])
-    end
-
-    def label_end?(string, index)
-      index >= string.length || label_separator?(string[index])
-    end
-
-    def label_separator?(char)
-      char == "." || char =~ /\s/
     end
 
     def rules

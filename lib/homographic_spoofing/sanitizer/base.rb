@@ -10,19 +10,16 @@ class HomographicSpoofing::Sanitizer::Base
   end
 
   def sanitize
-    result = field.dup
-    detector_class.new(field).detections.each do |detection|
-      log(detection.reason, detection.label)
-      result = punycode(result, detection.label)
-    end
-    result
+    detections = detector_class.new(field).detections
+    detections.each { |detection| log(detection.reason, detection.label) }
+    punycode(field.dup, detections.map(&:label).uniq)
   end
 
   private
     attr_reader :field
 
-    # Detections are per label. When the label is a complete component of the
-    # field — a whole domain label or local part, delimited by "." or "@" —
+    # Detections are per label. When a label is a complete component of the
+    # field (a whole domain label or local part, delimited by "." or "@"),
     # punycode it as that component so an offending label is never replaced as a
     # substring of a benign sibling (e.g. the Cyrillic digit-look-alike "з" that
     # also sits inside "магазин"). Matching is case-exact: the detector reports
@@ -31,12 +28,22 @@ class HomographicSpoofing::Sanitizer::Base
     # case-variant on the other side of the "@" is left alone. A label that is
     # only a substring of a component (a display name carrying spaces) has no
     # whole component to match and falls back to the exact substring replacement.
-    def punycode(source, label)
-      if source.split(/[.@]/).any? { |component| component.strip == label }
-        source.split(/([.@])/).map { |component| component.strip == label ? component.sub(label, Dnsruby::Name.punycode(label)) : component }.join
-      else
-        source.gsub(label) { Dnsruby::Name.punycode(label) }
-      end
+    #
+    # The field is split once for all labels, so a domain with many offending
+    # labels is sanitized in time linear in its length.
+    def punycode(source, labels)
+      components = source.split(/([.@])/)
+      present = components.to_set(&:strip)
+      whole, partial = labels.partition { |label| present.include?(label) }
+      whole = whole.to_set
+
+      result = components.map { |component| whole.include?(component.strip) ? punycode_component(component) : component }.join
+      partial.inject(result) { |text, label| text.gsub(label) { Dnsruby::Name.punycode(label) } }
+    end
+
+    def punycode_component(component)
+      label = component.strip
+      component.sub(label, Dnsruby::Name.punycode(label))
     end
 
     def detector_class

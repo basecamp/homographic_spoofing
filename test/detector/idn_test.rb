@@ -1,4 +1,5 @@
 require "test_helper"
+require "timeout"
 
 class HomographicSpoofing::Detector::IdnTest < ActiveSupport::TestCase
   test "Single script" do
@@ -373,6 +374,32 @@ class HomographicSpoofing::Detector::IdnTest < ActiveSupport::TestCase
     assert_safe("example.com.")     # trailing dot
     assert_safe("a..b.example.com") # empty middle label
     assert_safe("example.com")      # single registrable label, no subdomain
+  end
+
+  test "Rules that read a neighbouring character treat a label edge as non-Japanese, non-letter context" do
+    # Slash look-alikes ("ノ", "ソ", "ン", "丿") at the edge of a label sit next to
+    # the dot the renderer draws, which reads as "google.com/" just as a Latin
+    # neighbour would.
+    assert_attack("google.comノ.x.evil.com", reason: "dangerous_pattern")
+    assert_attack("paypal.com.ソ.x.example.com", reason: "dangerous_pattern")
+    assert_attack("google.com.ン.evil.com", reason: "dangerous_pattern")
+    assert_attack("comノ.example.com", reason: "dangerous_pattern")
+    # Japanese words that start or end with one of them stay safe, including
+    # beside the prolonged sound mark "ー".
+    assert_safe("ノート.example.jp")
+    assert_safe("x.ノート.example.jp")
+    assert_safe("www.パソコン.jp")
+    assert_safe("コーン.jp")
+
+    # A label never starts with a combining mark; one there attaches to the dot
+    # before it.
+    assert_attack("a.\u0301b.example.com", reason: "invisible_characters")
+    assert_attack("\u0301b.example.com", reason: "invisible_characters")
+  end
+
+  test "Domains with many labels are checked in linear time" do
+    domain = ([ "з" ] * 5_000).join(".") + ".example.com"
+    Timeout.timeout(5) { assert_equal 5_000, HomographicSpoofing::Detector::Idn.detections(domain).size }
   end
 
   test "PublixSuffix parsing errors" do
