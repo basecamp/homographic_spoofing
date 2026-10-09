@@ -10,10 +10,9 @@ class HomographicSpoofing::Sanitizer::Base
   end
 
   def sanitize
-    result = field.dup
     detections = detector_class.new(field).detections
     detections.each { |detection| log(detection.reason, detection.label) }
-    apply(result, detections)
+    apply(field, detections)
   end
 
   private
@@ -24,25 +23,46 @@ class HomographicSpoofing::Sanitizer::Base
     # domain-label spoof is confined to the domain and never rewrites a benign
     # local part that merely equals the same string — this is what keeps
     # "з@мир.з.example.com" punycoding the domain label "з" while leaving the "з"
-    # mailbox intact. Spans are spliced back right-to-left so each edit leaves the
-    # earlier offsets valid. Spans can nest (a display name read from a comment
-    # the host's token carries), so an inner span is spliced before the span
-    # around it, which then grows or shrinks by the inner edit. A detection with
-    # no span (a bare IDN or quoted string) spans the whole field and is applied
-    # last, over what remains.
-    def apply(result, detections)
+    # mailbox intact. Spans are disjoint or nested (a display name read from a
+    # comment the host's token carries), so they form a tree: each span's text is
+    # rebuilt with its inner spans already rewritten, then rewritten itself, in
+    # one pass over the field. A detection with no span (a bare IDN or quoted
+    # string) spans the whole field and is applied last, over what remains.
+    def apply(field, detections)
       whole, spanned = detections.partition { |detection| detection.span.nil? }
-      edits = spanned.group_by(&:span).map { |(offset, length), group| [ offset, length, group.map(&:label).uniq ] }
-      edits.sort_by! { |offset, length, _labels| [ -offset, length ] }
-
-      edits.each_with_index do |(offset, length, labels), index|
-        replacement = replace_labels(result[offset, length], labels)
-        result[offset, length] = replacement
-        edits.drop(index + 1).each do |outer|
-          outer[1] += replacement.length - length if outer[0] <= offset && outer[0] + outer[1] >= offset + length
-        end
+      edits = spanned.group_by(&:span).map do |(offset, length), group|
+        Edit.new(offset, offset + length, group.map(&:label).uniq, [])
       end
-      replace_labels(result, whole.map(&:label).uniq)
+      chars = field.chars
+      replace_labels(splice(chars, 0, chars.length, nest(edits)), whole.map(&:label).uniq)
+    end
+
+    Edit = Struct.new(:start, :finish, :labels, :inner)
+
+    # Arrange spans into a tree, outer before inner, in one pass over them sorted
+    # by start. A span that overlaps an earlier sibling without nesting in it is
+    # trimmed to start where that sibling ends.
+    def nest(edits)
+      outermost, open = [], []
+      edits.sort_by { |edit| [ edit.start, -edit.finish ] }.each do |edit|
+        open.pop while open.any? && open.last.finish < edit.finish
+        siblings = open.empty? ? outermost : open.last.inner
+        edit.start = [ edit.start, siblings.last.finish ].max if siblings.any?
+        next if edit.start > edit.finish
+
+        siblings << edit
+        open << edit
+      end
+      outermost
+    end
+
+    def splice(chars, start, finish, edits)
+      text, at = +"", start
+      edits.each do |edit|
+        text << chars[at...edit.start].join << replace_labels(splice(chars, edit.start, edit.finish, edit.inner), edit.labels)
+        at = edit.finish
+      end
+      text << chars[at...finish].join
     end
 
     # Replace each label where it is a whole "."-delimited component of the

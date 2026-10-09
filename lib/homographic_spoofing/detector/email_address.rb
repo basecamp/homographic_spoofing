@@ -110,10 +110,43 @@ class HomographicSpoofing::Detector::EmailAddress
       start = structural_index(route, from: lt + 1) if lt
       return [] unless start && start + route.length <= gt
 
-      route.to_enum(:scan, /[^@,:\s]+/).map do
-        match = Regexp.last_match
-        [ match[0], [ start + match.begin(0), match[0].length ] ]
+      route_entries(route).filter_map do |domain, offset, length|
+        [ domain, [ start + offset, length ] ] if domain.present?
       end
+    end
+
+    # Split a route ("@a.example, @b.example:") into its domains in one pass, on
+    # each "," or ":" outside comments. Each entry's span starts after its "@";
+    # its domain is checked with comments and whitespace set aside (the obsolete
+    # syntax allows both between labels), while the sanitizer, which also sets
+    # them aside per label, rewrites only the labels within the span.
+    def route_entries(route)
+      entries = []
+      bare, at, entry_start, depth, escaped = +"", nil, 0, 0, false
+
+      route.each_char.with_index do |char, index|
+        commented = depth > 0
+        if escaped
+          escaped = false
+        elsif commented && char == "\\"
+          escaped = true
+        elsif commented
+          depth += 1 if char == "("
+          depth -= 1 if char == ")"
+        elsif char == "("
+          depth, commented = 1, true
+        elsif char == "," || char == ":"
+          entries << [ bare.gsub(/\s/, ""), at || entry_start, index - (at || entry_start) ]
+          bare, at, entry_start = +"", nil, index + 1
+          next
+        elsif char == "@" && at.nil?
+          at = index + 1
+          next
+        end
+        bare << char unless commented || at.nil?
+      end
+
+      entries << [ bare.gsub(/\s/, ""), at || entry_start, route.length - (at || entry_start) ]
     end
 
     def local_span(at, raw_local)
@@ -231,12 +264,21 @@ class HomographicSpoofing::Detector::EmailAddress
       search_ranges(text, outside, from:) || search_ranges(text, comment_runs(commented: true), from:)
     end
 
-    # The maximal [start, finish) runs of characters inside (or outside) comments.
+    # The maximal [start, finish) runs of characters inside (or outside)
+    # comments, without the parentheses that open and close each comment, so a
+    # display name's replacement can never move a comment's edge.
     def comment_runs(commented:)
-      @comment_runs ||= enclosures.last.each_with_index.chunk_while { |(a, _), (b, _)| a == b }.map do |run|
-        [ run.first.first, run.first.last, run.last.last + 1 ]
+      @comment_runs ||= begin
+        char_to_byte, _byte_to_char = offset_tables
+        delimiter = ->(index) { field_bytes.getbyte(char_to_byte[index]) }
+        enclosures.last.each_with_index.chunk_while { |(a, _), (b, _)| a == b }.map do |run|
+          inside, start, finish = run.first.first, run.first.last, run.last.last + 1
+          finish -= 1 if inside && delimiter.(finish - 1) == ")".ord
+          finish -= 1 if !inside && finish < char_to_byte.length - 1 && delimiter.(finish - 1) == "(".ord
+          [ inside, start, finish ]
+        end
       end
-      @comment_runs.filter_map { |inside, start, finish| [ start, finish ] if inside == commented }
+      @comment_runs.filter_map { |inside, start, finish| [ start, finish ] if inside == commented && start < finish }
     end
 
     def outside_of((start, finish), avoid)
@@ -250,13 +292,13 @@ class HomographicSpoofing::Detector::EmailAddress
     # itself.
     def search_ranges(text, ranges, from:)
       char_to_byte, byte_to_char = offset_tables
-      needle = text.b
+      needle, length = text.b, text.length
       ranges.each do |start, finish|
         start = [ start, from ].max
-        next if finish - start < text.length
+        next if finish - start < length
 
         at = field_bytes.byteslice(char_to_byte[start]...char_to_byte[finish]).index(needle)
-        return [ byte_to_char[char_to_byte[start] + at], text.length ] if at
+        return [ byte_to_char[char_to_byte[start] + at], length ] if at
       end
       nil
     end
