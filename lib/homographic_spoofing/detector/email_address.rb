@@ -95,9 +95,41 @@ class HomographicSpoofing::Detector::EmailAddress
     # not part of the mailbox, so it is set aside here and its domains are
     # checked as domains (see #route_domains). Each part is then punycoded on its
     # own, and the route's "@", "," and ":" stay as they are.
+    #
+    # Comments are set aside too: they are not part of the mailbox, and the
+    # parser may take the display name from one ("<local(Name)@host>"), so the
+    # name's replacement must not change the text the mailbox is matched by.
     def mailbox(mail_address)
       local, route = mail_address.local, parsed_address&.obs_domain_list
-      route.present? && local ? local.delete_prefix(route) : local
+      local = local.delete_prefix(route) if route.present? && local
+      without_comments(local)&.strip
+    end
+
+    # The text with its comments removed, honouring nesting, quoted strings and
+    # backslash escapes, in one pass.
+    def without_comments(text)
+      return text unless text&.include?("(")
+
+      bare, depth, quoted, escaped = +"", 0, false, false
+      text.each_char do |char|
+        commented = depth > 0
+        if escaped
+          escaped = false
+        elsif char == "\\" && (commented || quoted)
+          escaped = true
+        elsif commented
+          depth += 1 if char == "("
+          depth -= 1 if char == ")"
+        elsif quoted
+          quoted = false if char == '"'
+        elsif char == '"'
+          quoted = true
+        elsif char == "("
+          depth, commented = 1, true
+        end
+        bare << char unless commented
+      end
+      bare
     end
 
     # Each domain of an obsolete route, with its span in the field: the route
@@ -189,7 +221,7 @@ class HomographicSpoofing::Detector::EmailAddress
     # The first occurrence of `needle` at or after `from` that starts outside
     # every quoted string, domain literal and comment in the field.
     def structural_index(needle, from: 0)
-      enclosed, commented = enclosures
+      enclosed, commented, _quoted_pair = enclosures
       while (at = index_in_field(needle, from))
         return at unless enclosed[at] || commented[at]
         from = at + 1
@@ -205,14 +237,17 @@ class HomographicSpoofing::Detector::EmailAddress
     # only nesting parentheses do.
     def enclosures
       @enclosures ||= begin
-        enclosed, commented = Array.new(email_address.length, false), Array.new(email_address.length, false)
+        length = email_address.length
+        enclosed, commented, quoted_pair = Array.new(length, false), Array.new(length, false), Array.new(length, false)
         closer, depth, escaped = nil, 0, false
         email_address.each_char.with_index do |char, i|
           enclosed[i], commented[i] = !closer.nil?, depth > 0
           if escaped
             escaped = false
+            quoted_pair[i] = true
           elsif char == "\\" && (closer || depth > 0)
             escaped = true
+            quoted_pair[i] = true
           elsif closer
             closer = nil if char == closer
           elsif depth > 0
@@ -226,7 +261,7 @@ class HomographicSpoofing::Detector::EmailAddress
             depth = 1
           end
         end
-        [ enclosed, commented ]
+        [ enclosed, commented, quoted_pair ]
       end
     end
 
@@ -265,14 +300,21 @@ class HomographicSpoofing::Detector::EmailAddress
     end
 
     # The maximal [start, finish) runs of characters inside (or outside)
-    # comments, without the parentheses that open and close each comment, so a
-    # display name's replacement can never move a comment's edge.
+    # comments, without the parentheses that open and close each comment and
+    # without quoted pairs ("\\(" and the like), so a display name's replacement
+    # can never move a comment's edge or separate an escape from what it escapes.
+    # The parser unescapes quoted pairs in the name it reports, so a name that
+    # carries one is not in the field as written anyway.
     def comment_runs(commented:)
       @comment_runs ||= begin
         char_to_byte, _byte_to_char = offset_tables
         delimiter = ->(index) { field_bytes.getbyte(char_to_byte[index]) }
-        enclosures.last.each_with_index.chunk_while { |(a, _), (b, _)| a == b }.map do |run|
+        _enclosed, inside_comment, quoted_pair = enclosures
+        keys = inside_comment.each_with_index.map { |inside, index| quoted_pair[index] ? :quoted_pair : inside }
+        keys.each_with_index.chunk_while { |(a, _), (b, _)| a == b }.filter_map do |run|
           inside, start, finish = run.first.first, run.first.last, run.last.last + 1
+          next if inside == :quoted_pair
+
           finish -= 1 if inside && delimiter.(finish - 1) == ")".ord
           finish -= 1 if !inside && finish < char_to_byte.length - 1 && delimiter.(finish - 1) == "(".ord
           [ inside, start, finish ]

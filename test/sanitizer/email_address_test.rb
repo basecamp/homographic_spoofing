@@ -277,6 +277,18 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
     assert_equal "Name <#{([ "@xn--80a.com" ] * 8_000).join(",")}:user@example.com>", sanitized
   end
 
+  test "display name next to an escape in a comment leaves the comment and mailbox intact" do
+    assert_sanitize "\"(\\aá́́\" <(\\(aá́́)user@example.com>", "\"(\\aá́́\" <(\\(aá́́)user@example.com>"
+  end
+
+  test "spoofed mailbox sanitized when the display name comes from a comment inside it" do
+    assert_sanitize "<xn--titter-345b(xn--1ca20ia)@example.com>", "<tᴡitter(á́́)@example.com>"
+  end
+
+  test "sanitize nil" do
+    assert_nil HomographicSpoofing::Sanitizer::EmailAddress.sanitize(nil)
+  end
+
   private
     def assert_sanitize(sanitized, email_address)
       assert_equal sanitized, HomographicSpoofing::Sanitizer::EmailAddress.sanitize(email_address)
