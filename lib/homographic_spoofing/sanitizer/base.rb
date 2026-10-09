@@ -29,6 +29,8 @@ class HomographicSpoofing::Sanitizer::Base
     # one pass over the field. A detection with no span (a bare IDN or quoted
     # string) spans the whole field and is applied last, over what remains.
     def apply(field, detections)
+      return field.dup if detections.empty?
+
       whole, spanned = detections.partition { |detection| detection.span.nil? }
       edits = spanned.group_by(&:span).map do |(offset, length), group|
         Edit.new(offset, offset + length, group.map(&:label).uniq, [])
