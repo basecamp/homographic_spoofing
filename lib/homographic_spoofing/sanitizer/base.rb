@@ -25,12 +25,22 @@ class HomographicSpoofing::Sanitizer::Base
     # local part that merely equals the same string — this is what keeps
     # "з@мир.з.example.com" punycoding the domain label "з" while leaving the "з"
     # mailbox intact. Spans are spliced back right-to-left so each edit leaves the
-    # earlier offsets valid. A detection with no span (a bare IDN or quoted
-    # string) spans the whole field and is applied last, over what remains.
+    # earlier offsets valid. Spans can nest (a display name read from a comment
+    # the host's token carries), so an inner span is spliced before the span
+    # around it, which then grows or shrinks by the inner edit. A detection with
+    # no span (a bare IDN or quoted string) spans the whole field and is applied
+    # last, over what remains.
     def apply(result, detections)
       whole, spanned = detections.partition { |detection| detection.span.nil? }
-      spanned.group_by(&:span).sort_by { |(offset, _length), _group| -offset }.each do |(offset, length), group|
-        result[offset, length] = replace_labels(result[offset, length], group.map(&:label).uniq)
+      edits = spanned.group_by(&:span).map { |(offset, length), group| [ offset, length, group.map(&:label).uniq ] }
+      edits.sort_by! { |offset, length, _labels| [ -offset, length ] }
+
+      edits.each_with_index do |(offset, length, labels), index|
+        replacement = replace_labels(result[offset, length], labels)
+        result[offset, length] = replacement
+        edits.drop(index + 1).each do |outer|
+          outer[1] += replacement.length - length if outer[0] <= offset && outer[0] + outer[1] >= offset + length
+        end
       end
       replace_labels(result, whole.map(&:label).uniq)
     end
