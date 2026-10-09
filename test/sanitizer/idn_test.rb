@@ -72,6 +72,12 @@ class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
     assert_sanitize "xn-- b-6kc.com", "А b.com"
   end
 
+  # Punycode keeps ASCII characters as written, so the encoded label is
+  # inserted literally, never read as a replacement pattern ("\\`").
+  test "sanitize an offending label carrying a backslash sequence" do
+    assert_sanitize "xn--\\`1-5cd.example.com", "а\\`1.example.com"
+  end
+
   test "sanitize a domain with many offending labels in linear time" do
     domain = ([ "з" ] * 5_000).join(".") + ".example.com"
     sanitized = Timeout.timeout(5) { HomographicSpoofing::Sanitizer::Idn.sanitize(domain) }

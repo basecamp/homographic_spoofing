@@ -43,7 +43,7 @@ class HomographicSpoofing::Sanitizer::Base
 
     def punycode_component(component)
       label = component.strip
-      component.sub(label, Dnsruby::Name.punycode(label))
+      component.sub(label) { Dnsruby::Name.punycode(label) }
     end
 
     def detector_class
