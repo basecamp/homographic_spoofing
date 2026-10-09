@@ -85,24 +85,42 @@ class HomographicSpoofing::Detector::Idn
     end
 
     def contexts
-      [ public_suffix.sld, public_suffix.trd ].compact.map do |label|
-        HomographicSpoofing::Detector::Rule::Idn::Context.new(label: label, tld: public_suffix.tld)
+      registry_suffix, labels = split_domain
+      labels.map do |label|
+        HomographicSpoofing::Detector::Rule::Idn::Context.new(label: label, tld: registry_suffix)
       end
     end
 
-    def public_suffix
-      @public_suffix ||= icann_domain || non_icann_domain
-    end
+    # Splits the domain into the suffix its registry controls and the labels to
+    # check, the way PublicSuffix.parse splits it into tld, sld and trd, except:
+    #  - The label a wildcard entry matches (раураӏ in раураӏ.mm, under *.mm) is
+    #    not fixed by the registry, so it is checked like any other label, and
+    #    the registry suffix is only the part the entry spells out (mm).
+    #  - A domain that is itself a public suffix (co.uk, mm) has no label to
+    #    check, and is not an error.
+    #  - Private entries (github.io, *.compute.amazonaws.com) are ignored, so
+    #    names under them are checked like any other name.
+    def split_domain
+      name = PublicSuffix.normalize(domain)
+      raise name if name.is_a?(PublicSuffix::DomainInvalid)
 
-    def icann_domain
-      PublicSuffix.parse(domain, ignore_private: true) if PublicSuffix.valid?(domain)
-    end
-
-    def non_icann_domain
-      if PublicSuffix::List.default.find(domain, default: nil, ignore_private: true).present?
-        PublicSuffix::Domain.new(domain)
+      case rule = PublicSuffix::List.default.find(name, default: nil, ignore_private: true)
+      when nil
+        # Unknown TLD: the default rule applies, and a single label is invalid.
+        parsed = PublicSuffix.parse(name, ignore_private: true)
+        [ parsed.tld, [ parsed.sld, parsed.trd ].compact ]
+      when PublicSuffix::Rule::Wildcard
+        left, _ = PublicSuffix::Rule::Normal.new(value: rule.value).decompose(name)
+        *rest, wildcard_label = left.to_s.split(".")
+        [ rule.value, [ *sld_and_trd(rest.join(".")), wildcard_label ].compact ]
       else
-        raise PublicSuffix::DomainInvalid
+        left, registry_suffix = rule.decompose(name)
+        [ registry_suffix || name, sld_and_trd(left.to_s) ]
       end
+    end
+
+    def sld_and_trd(left)
+      *trd, sld = left.split(".")
+      [ sld, trd.join(".").presence ].compact
     end
 end
