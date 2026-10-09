@@ -305,6 +305,15 @@ class HomographicSpoofing::Detector::IdnTest < ActiveSupport::TestCase
     assert_attack("раураӏ.compute.amazonaws.com", reason: "script_confusable")
     assert_safe("github.io")
     assert_safe("example.compute.amazonaws.com")
+    assert_safe("пример.compute.amazonaws.com")
+  end
+
+  test "Each label is checked on its own" do
+    # Scripts are mixed within a label, not across labels: a Cyrillic label next
+    # to an ASCII one is fine, as in Chrome.
+    assert_safe("пример.foo.example.com")
+    assert_safe("музей.compute.example.com")
+    assert_attack("paypαl.foo.example.com", reason: "mixed_scripts")
   end
 
   test "Whole script confusable" do

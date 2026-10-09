@@ -25,9 +25,11 @@ class HomographicSpoofing::Detector::Idn
   end
 
   def detections
-    rules.select(&:attack_detected?).map do |rule|
-      HomographicSpoofing::Detector::Detection.new(rule.reason, original_case(rule.label))
-    end
+    rules.select(&:attack_detected?).flat_map do |rule|
+      original_cases(rule.label).map do |label|
+        HomographicSpoofing::Detector::Detection.new(rule.reason, label)
+      end
+    end.uniq
   rescue PublicSuffix::Error
     # Invalid IDN is a spoof.
     [ HomographicSpoofing::Detector::Detection.new("invalid_domain", original_domain) ]
@@ -37,7 +39,7 @@ class HomographicSpoofing::Detector::Idn
     attr_reader :domain, :original_domain
 
     # Detection runs on the lowercased domain, so labels come back lowercased.
-    # Recover the original-cased run of the domain the label occupies, so the
+    # Recover the original-cased runs of the domain the label occupies, so the
     # sanitizer can substitute by exact match instead of regexp case folding —
     # which both over-matches (folds unrelated ASCII, e.g. ſ/s) and under-matches
     # (misses case pairs folding omits, e.g. Ⱥ/ⱥ). Map each lowercased position
@@ -45,7 +47,9 @@ class HomographicSpoofing::Detector::Idn
     # lowercased form. This stays correct — and linear — where a fixed offset
     # would not: when a character lowercases to a different length (İ → i̇), and
     # when PublicSuffix stripped surrounding characters the raw domain carries.
-    def original_case(label)
+    # The same label can appear more than once in different casings
+    # (РАУРАӀ.раураӏ.mm), so return every distinct one.
+    def original_cases(label)
       origin = []
       lowercased = +""
       original_domain.each_char.with_index do |char, index|
@@ -54,15 +58,16 @@ class HomographicSpoofing::Detector::Idn
         downcased.length.times { origin << index }
       end
 
+      spans = []
       from = 0
       while (start = lowercased.index(label, from))
         span = original_domain[origin[start]..origin[start + label.length - 1]]
         # `index` can land inside a character whose lowercase spans several (İ →
         # i̇), so accept only a span that round-trips exactly to the label.
-        return span if span.downcase == label
+        spans << span if span.downcase == label
         from = start + 1
       end
-      label
+      spans.empty? ? [ label ] : spans.uniq
     end
 
     def rules
@@ -86,13 +91,13 @@ class HomographicSpoofing::Detector::Idn
 
     def contexts
       registry_suffix, labels = split_domain
-      labels.map do |label|
+      labels.reject(&:empty?).map do |label|
         HomographicSpoofing::Detector::Rule::Idn::Context.new(label: label, tld: registry_suffix)
       end
     end
 
     # Splits the domain into the suffix its registry controls and the labels to
-    # check, the way PublicSuffix.parse splits it into tld, sld and trd, except:
+    # its left, each checked on its own as Chrome does. Unlike PublicSuffix.parse:
     #  - The label a wildcard entry matches (раураӏ in раураӏ.mm, under *.mm) is
     #    not fixed by the registry, so it is checked like any other label, and
     #    the registry suffix is only the part the entry spells out (mm).
@@ -108,19 +113,13 @@ class HomographicSpoofing::Detector::Idn
       when nil
         # Unknown TLD: the default rule applies, and a single label is invalid.
         parsed = PublicSuffix.parse(name, ignore_private: true)
-        [ parsed.tld, [ parsed.sld, parsed.trd ].compact ]
+        [ parsed.tld, [ parsed.trd, parsed.sld ].compact.join(".").split(".") ]
       when PublicSuffix::Rule::Wildcard
         left, _ = PublicSuffix::Rule::Normal.new(value: rule.value).decompose(name)
-        *rest, wildcard_label = left.to_s.split(".")
-        [ rule.value, [ *sld_and_trd(rest.join(".")), wildcard_label ].compact ]
+        [ rule.value, left.to_s.split(".") ]
       else
         left, registry_suffix = rule.decompose(name)
-        [ registry_suffix || name, sld_and_trd(left.to_s) ]
+        [ registry_suffix || name, left.to_s.split(".") ]
       end
-    end
-
-    def sld_and_trd(left)
-      *trd, sld = left.split(".")
-      [ sld, trd.join(".").presence ].compact
     end
 end
