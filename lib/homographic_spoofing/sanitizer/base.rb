@@ -21,8 +21,10 @@ class HomographicSpoofing::Sanitizer::Base
   private
     attr_reader :field
 
+    # Substitutes whole occurrences only, so a detected label isn't encoded
+    # inside a longer one that merely contains it (а inside академия).
     def punycode(source, label)
-      source.gsub(label, Dnsruby::Name.punycode(label))
+      source.gsub(/(?<![\p{L}\p{M}\p{N}_-])#{Regexp.escape(label)}(?![\p{L}\p{M}\p{N}_-])/) { Dnsruby::Name.punycode(label) }
     end
 
     def detector_class

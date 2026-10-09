@@ -14,6 +14,13 @@ class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
     assert_sanitize "xn--80aa0cbo66e.xn--80aa0cbo65f.mm", "РАУРАӀ.раураӏ.mm"
   end
 
+  test "sanitize only whole labels" do
+    # A detected label is not encoded inside a longer label that contains it.
+    assert_sanitize "xn--80a.академия.com", "а.академия.com"
+    assert_sanitize "xn--80a.Академия.example.com", "а.Академия.example.com"
+    assert_sanitize "xn--80aa0cbo65f.РАУРАӀмузей.mm", "раураӏ.РАУРАӀмузей.mm"
+  end
+
   test "sanitize quotation-mark look-alikes" do
     assert_sanitize "gmail.com", "gmail.com"
     assert_sanitize "xn--gmail-h2c.com", "gmail\u02bc.com"
