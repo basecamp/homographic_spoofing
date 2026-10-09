@@ -289,6 +289,10 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
     assert_sanitize "\"á́́\\\\\" <user@example.com>", "\"á́́\\\\\" <user@example.com>"
   end
 
+  test "spoofed domain label that keeps trailing whitespace is sanitized, not a matching comment" do
+    assert_sanitize "user@xn-- -7sb.com (а )", "user@А .com (а )"
+  end
+
   test "sanitize nil" do
     assert_nil HomographicSpoofing::Sanitizer::EmailAddress.sanitize(nil)
   end

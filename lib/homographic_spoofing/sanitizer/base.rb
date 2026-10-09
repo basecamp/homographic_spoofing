@@ -80,17 +80,28 @@ class HomographicSpoofing::Sanitizer::Base
     # display name carrying spaces) has no whole component to match and falls
     # back to exact substring replacement.
     #
+    # A label that keeps whitespace inside it, as PublicSuffix reports "а " in
+    # "А .com", matches its component as written.
+    #
     # The region is scanned once for all labels, so sanitizing stays linear in
     # its length however many labels were detected.
     def replace_labels(region, labels)
       return region if labels.empty?
 
       components = label_components(region)
-      present = components.to_set(&:bare)
+      present = components.to_set(&:bare) | components.map(&:text)
       whole, partial = labels.partition { |label| present.include?(label) }
       whole = whole.to_set
 
-      result = components.map { |component| whole.include?(component.bare) ? component.punycoded : component.text }.join
+      result = components.map do |component|
+        if whole.include?(component.text) && component.bare
+          Dnsruby::Name.punycode(component.text)
+        elsif whole.include?(component.bare)
+          component.punycoded
+        else
+          component.text
+        end
+      end.join
       partial.inject(result) { |text, label| text.gsub(label) { Dnsruby::Name.punycode(label) } }
     end
 
