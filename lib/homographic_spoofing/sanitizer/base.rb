@@ -24,7 +24,9 @@ class HomographicSpoofing::Sanitizer::Base
     attr_reader :field
 
     def punycode(source, label)
-      source.gsub(label, Dnsruby::Name.punycode(label))
+      # A block, so a backslash in the label isn't read as a back-reference.
+      replacement = Dnsruby::Name.punycode(label)
+      source.gsub(label) { replacement }
     end
 
     def detector_class

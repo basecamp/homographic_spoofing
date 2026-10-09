@@ -14,6 +14,11 @@ class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
     assert_sanitize "xn--80aa0cbo66e.xn--80aa0cbo65f.mm", "РАУРАӀ.раураӏ.mm"
   end
 
+  test "sanitize labels with backslashes literally" do
+    domain = Array.new(20) { |i| format("a%02d\\`", i) }.join(".") + ".example.com"
+    assert_sanitize domain, domain
+  end
+
   test "sanitize labels contained in other detected labels" do
     # Each label is checked on its own, so a detected label can sit inside a
     # longer detected one. Both end up encoded.
