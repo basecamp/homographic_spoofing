@@ -20,8 +20,9 @@ class HomographicSpoofing::Detector::EmailAddress
     spans = component_spans(mail_address)
     [].tap do |result|
       result.concat detections_for(text: mail_address.name,   type: "quoted_string", span: spans[:name])
-      result.concat detections_for(text: mail_address.local,  type: "local",         span: spans[:local])
+      result.concat detections_for(text: mailbox(mail_address), type: "local",         span: spans[:local])
       result.concat detections_for(text: mail_address.domain, type: "idn",           span: spans[:domain])
+      route_domains.each { |domain, span| result.concat detections_for(text: domain, type: "idn", span:) }
     end
   rescue Mail::Field::FieldError
     # Do not analyse invalid email addresses.
@@ -89,18 +90,34 @@ class HomographicSpoofing::Detector::EmailAddress
       @parsed_address = nil
     end
 
-    # The mailbox's span. Mail::Address#local keeps an obsolete route
-    # ("@relay:" in "<@relay:local@domain>") in front of the mailbox, and the
-    # local detections carry that text, so the span runs from the route's start
-    # to cover it; without a route it is the raw local part alone.
-    def local_span(at, raw_local)
+    # The mailbox. Mail::Address#local keeps an obsolete route ("@relay:" in
+    # "<@relay:local@domain>") in front of it; the route is a list of domains,
+    # not part of the mailbox, so it is set aside here and its domains are
+    # checked as domains (see #route_domains). Each part is then punycoded on its
+    # own, and the route's "@", "," and ":" stay as they are.
+    def mailbox(mail_address)
+      local, route = mail_address.local, parsed_address&.obs_domain_list
+      route.present? && local ? local.delete_prefix(route) : local
+    end
+
+    # Each domain of an obsolete route, with its span in the field: the route
+    # sits inside the structural angle-address, before the addr-spec.
+    def route_domains
       route = parsed_address&.obs_domain_list
-      lt, _gt = angle_address
-      if route.present? && lt && (start = structural_index(route, from: lt + 1)) && start < at
-        [ start, at + raw_local.length - start ]
-      else
-        [ at, raw_local.length ]
+      return [] unless email_address.is_a?(String) && route.present?
+
+      lt, gt = angle_address
+      start = structural_index(route, from: lt + 1) if lt
+      return [] unless start && start + route.length <= gt
+
+      route.to_enum(:scan, /[^@,:\s]+/).map do
+        match = Regexp.last_match
+        [ match[0], [ start + match.begin(0), match[0].length ] ]
       end
+    end
+
+    def local_span(at, raw_local)
+      [ at, raw_local.length ]
     end
 
     # The display name's span. When the name the parser reports is not in the
@@ -200,23 +217,46 @@ class HomographicSpoofing::Detector::EmailAddress
       end
     end
 
-    # The first occurrence of `text` in the field at or after `from` that is
-    # outside every comment and outside `avoid` (the addr-spec, when locating a
-    # display name that shares a spelling with the mailbox or host) — leading
-    # CFWS may repeat a display name. Failing that, the first occurrence inside a
-    # comment, anywhere: the parser takes a display name from a trailing comment
-    # ("user@host (Name)"), which its raw domain token also carries, and a comment
-    # is never the mailbox or host even when it sits inside `avoid`.
+    # The first occurrence of `text` in the field at or after `from` that lies
+    # wholly outside every comment and outside `avoid` (the addr-spec, when
+    # locating a display name that shares a spelling with the mailbox or host);
+    # leading CFWS may repeat a display name. Failing that, the first occurrence
+    # wholly inside one comment: the parser takes a display name from a trailing
+    # comment ("user@host (Name)"), which its raw domain token also carries, and
+    # a comment is never the mailbox or host even when it sits inside `avoid`.
+    # An occurrence that crosses a comment's edge is neither, so it never sends
+    # a display name's replacement into the mailbox.
     def locate(text, from: 0, avoid: nil)
-      commented = enclosures.last
-      locate_where(text, from:) { |at| !commented[at] && !inside?(at, avoid) } ||
-        locate_where(text, from:) { |at| commented[at] }
+      outside = comment_runs(commented: false).flat_map { |range| outside_of(range, avoid) }
+      search_ranges(text, outside, from:) || search_ranges(text, comment_runs(commented: true), from:)
     end
 
-    def locate_where(text, from:)
-      while (at = index_in_field(text, from))
-        return [ at, text.length ] if yield(at)
-        from = at + 1
+    # The maximal [start, finish) runs of characters inside (or outside) comments.
+    def comment_runs(commented:)
+      @comment_runs ||= enclosures.last.each_with_index.chunk_while { |(a, _), (b, _)| a == b }.map do |run|
+        [ run.first.first, run.first.last, run.last.last + 1 ]
+      end
+      @comment_runs.filter_map { |inside, start, finish| [ start, finish ] if inside == commented }
+    end
+
+    def outside_of((start, finish), avoid)
+      return [ [ start, finish ] ] unless avoid
+
+      [ [ start, [ finish, avoid[0] ].min ], [ [ start, avoid[0] + avoid[1] ].max, finish ] ].reject { |a, b| a >= b }
+    end
+
+    # The first occurrence of `text` wholly inside one of `ranges`, searching
+    # each range once, so the cost stays linear however often `text` overlaps
+    # itself.
+    def search_ranges(text, ranges, from:)
+      char_to_byte, byte_to_char = offset_tables
+      needle = text.b
+      ranges.each do |start, finish|
+        start = [ start, from ].max
+        next if finish - start < text.length
+
+        at = field_bytes.byteslice(char_to_byte[start]...char_to_byte[finish]).index(needle)
+        return [ byte_to_char[char_to_byte[start] + at], text.length ] if at
       end
       nil
     end
@@ -252,9 +292,6 @@ class HomographicSpoofing::Detector::EmailAddress
       end
     end
 
-    def inside?(at, span)
-      span && at >= span[0] && at < span[0] + span[1]
-    end
 
     def mail_address_wrap(email_address)
       email_address.is_a?(Mail::Address) ? email_address : Mail::Address.new(email_address)
