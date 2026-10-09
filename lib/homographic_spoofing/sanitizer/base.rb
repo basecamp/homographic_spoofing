@@ -22,9 +22,14 @@ class HomographicSpoofing::Sanitizer::Base
     attr_reader :field
 
     # Substitutes whole occurrences only, so a detected label isn't encoded
-    # inside a longer one that merely contains it (а inside академия).
+    # inside a longer one that merely contains it (а inside академия). A label
+    # in an encoding the pattern can't take (invalid_unicode) is substituted
+    # wherever it appears.
     def punycode(source, label)
-      source.gsub(/(?<![\p{L}\p{M}\p{N}_-])#{Regexp.escape(label)}(?![\p{L}\p{M}\p{N}_-])/) { Dnsruby::Name.punycode(label) }
+      whole_label = /(?<![\p{L}\p{M}\p{N}_-])#{Regexp.escape(label)}(?![\p{L}\p{M}\p{N}_-])/
+      source.gsub(whole_label) { Dnsruby::Name.punycode(label) }
+    rescue RegexpError, Encoding::CompatibilityError
+      source.gsub(label, Dnsruby::Name.punycode(label))
     end
 
     def detector_class
