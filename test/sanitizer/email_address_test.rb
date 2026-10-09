@@ -259,6 +259,24 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
     assert_equal "\"#{name}\" <user@xn--80a.com>", sanitized
   end
 
+  test "display name that takes a comment's closing parenthesis leaves the mailbox intact" do
+    assert_sanitize "\"á́́\\)\" <(á́́)user@example.com>", "\"á́́\\)\" <(á́́)user@example.com>"
+  end
+
+  test "spoofed route domain sanitized despite whitespace between its labels" do
+    assert_sanitize "Name <@магазин.xn--g1a .example.com:user@example.com>", "Name <@магазин.з .example.com:user@example.com>"
+  end
+
+  test "spoofed route domain sanitized past a comment inside it" do
+    assert_sanitize "Name <@xn--80a(comment).com:user@example.com>", "Name <@а(comment).com:user@example.com>"
+  end
+
+  test "sanitize an address with many route domains in linear time" do
+    routes = ([ "@а.com" ] * 8_000).join(",")
+    sanitized = Timeout.timeout(5) { HomographicSpoofing::Sanitizer::EmailAddress.sanitize("Name <#{routes}:user@example.com>") }
+    assert_equal "Name <#{([ "@xn--80a.com" ] * 8_000).join(",")}:user@example.com>", sanitized
+  end
+
   private
     def assert_sanitize(sanitized, email_address)
       assert_equal sanitized, HomographicSpoofing::Sanitizer::EmailAddress.sanitize(email_address)
