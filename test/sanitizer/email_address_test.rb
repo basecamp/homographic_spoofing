@@ -222,7 +222,8 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
   end
 
   test "sanitize an address with a long run of unclosed comments in linear time" do
-    Timeout.timeout(5) { HomographicSpoofing::Sanitizer::EmailAddress.sanitize("user@з#{"(" * 50_000}.example.com") }
+    address = "user@з#{"(" * 50_000}.example.com"
+    assert_kind_of String, Timeout.timeout(5) { HomographicSpoofing::Sanitizer::EmailAddress.sanitize(address) }
   end
 
   test "spoofed domain sanitized when the display name comes from a comment inside the domain" do
@@ -247,8 +248,8 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
 
   test "locate a display name that overlaps itself in a leading comment in linear time" do
     n = 64_000
-    mark = "\u0301"
-    address = "(#{mark * (2 * n)}) \"#{mark * (n / 2)}\\#{mark * (n / 2)}\" <user@example.com>"
+    letter = "é"
+    address = "(#{letter * (2 * n)}) \"#{letter * (n / 2)}\\#{letter * (n / 2)}\" <user@example.com>"
     sanitized = Timeout.timeout(5) { HomographicSpoofing::Sanitizer::EmailAddress.sanitize(address) }
     assert sanitized.end_with?("<user@example.com>")
   end
