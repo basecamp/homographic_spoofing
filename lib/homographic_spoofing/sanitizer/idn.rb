@@ -8,21 +8,17 @@ class HomographicSpoofing::Sanitizer::Idn < HomographicSpoofing::Sanitizer::Base
       "EmailIDN"
     end
 
-    # The detector reports labels as PublicSuffix does: with the domain's own
-    # leading and trailing padding set aside, but any whitespace inside the
-    # domain kept on its label ("А " in " А .А .com"). Set the same padding
-    # apart as components of its own, so each label component reads as its
-    # label was reported.
-    def split_components(source)
-      components = super
-      if components.empty?
-        components
-      else
-        leading = components.first[/\A\s*/]
-        components[0] = components.first.delete_prefix(leading)
-        trailing = components.last[/\s*\z/]
-        components[-1] = components.last.delete_suffix(trailing)
-        [ leading, *components, trailing ].reject(&:empty?)
+    # A bare domain has no comments or quoted strings: the detector splits it on
+    # every ".", so split it the same way. Honouring "(" or '"' here would let an
+    # unmatched one fold the rest of the domain into one component, and every
+    # detected label would then fall back to a substitution over the whole field.
+    def label_components(region)
+      region.split(/(\.)/, -1).map do |text|
+        if text == "."
+          Component.new(text, nil, 0)
+        else
+          Component.new(text, text.strip, text.index(/\S/) || 0)
+        end
       end
     end
 end

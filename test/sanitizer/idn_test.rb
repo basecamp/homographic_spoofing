@@ -115,6 +115,14 @@ class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
     assert_sanitize "мир.xn--g1a.example.com", "мир.з.example.com"
   end
 
+  # A bare domain has no comments or quoted strings, so an unmatched "(" or '"'
+  # must not fold the labels after it into one component: each detected label
+  # is punycoded where it stands, never as a substring of a benign sibling.
+  test "sanitize the labels after an unmatched parenthesis or quote" do
+    assert_sanitize "(.xn--g1a.магазин.example.com", "(.з.магазин.example.com"
+    assert_sanitize "\".xn--g1a.магазин.example.com", "\".з.магазин.example.com"
+  end
+
   private
     def assert_sanitize(sanitized, domain)
       assert_equal sanitized, HomographicSpoofing::Sanitizer::Idn.sanitize(domain)
