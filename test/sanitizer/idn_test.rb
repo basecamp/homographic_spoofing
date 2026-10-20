@@ -88,6 +88,13 @@ class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
     assert_sanitize " xn-- -7sb.xn-- -7sb.com", " А .А .com"
   end
 
+  # Only the label that carries the space is offending; its sibling without
+  # one stays as written.
+  test "sanitize a whitespace-carrying label but not its sibling without the whitespace" do
+    assert_sanitize "xn-- -otblr.мир.ru", "мир .мир.ru"
+    assert_sanitize "мир.xn-- -otblr.ru", "мир.мир .ru"
+  end
+
   test "sanitize many distinct offending labels with whitespace in linear time" do
     labels = (1..8_000).map { |i| "а#{i} " }
     sanitized = Timeout.timeout(5) { HomographicSpoofing::Sanitizer::Idn.sanitize("#{labels.join(".")}.example.com") }
