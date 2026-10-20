@@ -219,6 +219,12 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
   # the field as written. The only near match crosses the nested comment's
   # closing parenthesis, and a replacement there would rewrite comment text and
   # move a delimiter, so the field is left as it is.
+  # The same label is reported with different padding at each position; each
+  # component is rewritten at its own spelling, including one behind a comment.
+  test "domain labels padded differently are each sanitized, beside a comment too" do
+    assert_sanitize "user@ (x)xn-- -7sb.xn--  -7kc.com", "user@ (x)а . а .com"
+  end
+
   test "display name never matched across a nested comment's delimiter" do
     address = '"á́́\\)" <(outer(á́́)user)user@example.com>'
     assert_sanitize address, address
