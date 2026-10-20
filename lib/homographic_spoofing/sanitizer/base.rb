@@ -29,32 +29,37 @@ class HomographicSpoofing::Sanitizer::Base
     # only a substring of a component (a display name carrying spaces) has no
     # whole component to match and falls back to the exact substring replacement.
     #
-    # A label may keep whitespace of its own, as PublicSuffix reports "А " in
-    # " А .com" with only the field's leading padding removed, so a component
-    # also matches with padding set aside on one side or both.
+    # A label may keep whitespace of its own: PublicSuffix reports "А " in
+    # " А .com", with only the field's leading padding removed. So a component
+    # matches every label that equals it with padding set aside, and is
+    # rewritten at the spelling the label carries where that spelling sits at
+    # the component's label, or else at its stripped label.
     #
     # The field is split once for all labels, so a domain with many offending
     # labels is sanitized in time linear in its length.
     def punycode(source, labels)
       components = source.split(/([.@])/)
-      present = components.flat_map { |component| spellings(component) }.to_set
-      whole, partial = labels.partition { |label| present.include?(label) }
-      whole = whole.to_set
+      present = components.to_set(&:strip)
+      whole, partial = labels.partition { |label| present.include?(label.strip) }
+      by_stripped = whole.group_by(&:strip)
 
       result = components.map do |component|
-        label = spellings(component).find { |spelling| whole.include?(spelling) }
-        label ? punycode_component(component, label) : component
+        candidates = by_stripped[component.strip]
+        candidates ? punycode_component(component, candidates) : component
       end.join
       partial.inject(result) { |text, label| text.gsub(label) { Dnsruby::Name.punycode(label) } }
     end
 
-    # The component as written, then without leading, trailing or both
-    # paddings: each is a contiguous part of the component.
-    def spellings(component)
-      [ component, component.lstrip, component.rstrip, component.strip ].uniq
-    end
-
-    def punycode_component(component, label)
+    # The longest candidate that is written at the component's label, counting
+    # any leading whitespace the candidate carries; failing that, the stripped
+    # label itself.
+    def punycode_component(component, candidates)
+      start = component.index(/\S/) || 0
+      label = candidates.sort_by { |candidate| -candidate.length }.find do |candidate|
+        at = start - (candidate.length - candidate.lstrip.length)
+        at >= 0 && component[at, candidate.length] == candidate
+      end
+      label ||= component.strip
       at = component.index(label)
       component[0, at] + Dnsruby::Name.punycode(label) + component[(at + label.length)..]
     end
