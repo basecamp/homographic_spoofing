@@ -215,6 +215,15 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
     assert_sanitize "user@магазин.xn--g1a(a\\).b).example.com", "user@магазин.з(a\\).b).example.com"
   end
 
+  # The parser reports this display name unescaped, as "á́́)", which is not in
+  # the field as written. The only near match crosses the nested comment's
+  # closing parenthesis, and a replacement there would rewrite comment text and
+  # move a delimiter, so the field is left as it is.
+  test "display name never matched across a nested comment's delimiter" do
+    address = '"á́́\\)" <(outer(á́́)user)user@example.com>'
+    assert_sanitize address, address
+  end
+
   test "sanitize an address with many offending domain labels in linear time" do
     labels = [ "з" ] * 5_000
     sanitized = Timeout.timeout(5) { HomographicSpoofing::Sanitizer::EmailAddress.sanitize("a@#{labels.join(".")}.example.com") }

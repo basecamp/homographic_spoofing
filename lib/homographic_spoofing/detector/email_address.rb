@@ -222,7 +222,7 @@ class HomographicSpoofing::Detector::EmailAddress
     # The first occurrence of `needle` at or after `from` that starts outside
     # every quoted string, domain literal and comment in the field.
     def structural_index(needle, from: 0)
-      enclosed, commented, _quoted_pair = enclosures
+      enclosed, commented, _unsearchable = enclosures
       while (at = index_in_field(needle, from))
         return at unless enclosed[at] || commented[at]
         from = at + 1
@@ -235,25 +235,28 @@ class HomographicSpoofing::Detector::EmailAddress
     # outside its own enclosure, so a needle may begin with one ('"john"@host');
     # the closing delimiter is inside. Backslash escapes are honored in all
     # three, and inside a comment neither quotes nor literals have structure —
-    # only nesting parentheses do.
+    # only nesting parentheses do. The third table marks what a replacement must
+    # never include: quoted pairs, and every parenthesis inside a comment (a
+    # nested comment's delimiters and the closing one).
     def enclosures
       @enclosures ||= begin
         length = email_address.length
-        enclosed, commented, quoted_pair = Array.new(length, false), Array.new(length, false), Array.new(length, false)
+        enclosed, commented, unsearchable = Array.new(length, false), Array.new(length, false), Array.new(length, false)
         closer, depth, escaped = nil, 0, false
         email_address.each_char.with_index do |char, i|
           enclosed[i], commented[i] = !closer.nil?, depth > 0
           if escaped
             escaped = false
-            quoted_pair[i] = true
+            unsearchable[i] = true
           elsif char == "\\" && (closer || depth > 0)
             escaped = true
-            quoted_pair[i] = true
+            unsearchable[i] = true
           elsif closer
             closer = nil if char == closer
           elsif depth > 0
             depth += 1 if char == "("
             depth -= 1 if char == ")"
+            unsearchable[i] = true if char == "(" || char == ")"
           elsif char == '"'
             closer = '"'
           elsif char == "["
@@ -262,7 +265,7 @@ class HomographicSpoofing::Detector::EmailAddress
             depth = 1
           end
         end
-        [ enclosed, commented, quoted_pair ]
+        [ enclosed, commented, unsearchable ]
       end
     end
 
@@ -321,22 +324,22 @@ class HomographicSpoofing::Detector::EmailAddress
     end
 
     # The maximal [start, finish) runs of characters inside (or outside)
-    # comments, without the parentheses that open and close each comment and
-    # without quoted pairs ("\\(" and the like), so a display name's replacement
-    # can never move a comment's edge or separate an escape from what it escapes.
+    # comments, without the parentheses that open and close each comment or any
+    # comment nested in it, and without quoted pairs ("\\(" and the like), so a
+    # display name's replacement can never move a comment's edge or separate an
+    # escape from what it escapes.
     # The parser unescapes quoted pairs in the name it reports, so a name that
     # carries one is not in the field as written anyway.
     def comment_runs(commented:)
       @comment_runs ||= begin
         char_to_byte, _byte_to_char = offset_tables
         delimiter = ->(index) { field_bytes.getbyte(char_to_byte[index]) }
-        _enclosed, inside_comment, quoted_pair = enclosures
-        keys = inside_comment.each_with_index.map { |inside, index| quoted_pair[index] ? :quoted_pair : inside }
+        _enclosed, inside_comment, unsearchable = enclosures
+        keys = inside_comment.each_with_index.map { |inside, index| unsearchable[index] ? :unsearchable : inside }
         keys.each_with_index.chunk_while { |(a, _), (b, _)| a == b }.filter_map do |run|
           inside, start, finish = run.first.first, run.first.last, run.last.last + 1
-          next if inside == :quoted_pair
+          next if inside == :unsearchable
 
-          finish -= 1 if inside && delimiter.(finish - 1) == ")".ord
           finish -= 1 if !inside && finish < char_to_byte.length - 1 && delimiter.(finish - 1) == "(".ord
           [ inside, start, finish ]
         end
