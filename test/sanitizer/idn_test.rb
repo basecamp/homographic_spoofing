@@ -82,6 +82,12 @@ class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
     assert_sanitize "xn-- -7sb.com", "А .com"
   end
 
+  # PublicSuffix removes only the field's leading padding, so the first label
+  # is reported as "А " while its component reads " А ".
+  test "sanitize an offending label that keeps trailing whitespace after leading padding" do
+    assert_sanitize " xn-- -7sb.xn-- -7sb.com", " А .А .com"
+  end
+
   test "sanitize many distinct offending labels with whitespace in linear time" do
     labels = (1..8_000).map { |i| "а#{i} " }
     sanitized = Timeout.timeout(5) { HomographicSpoofing::Sanitizer::Idn.sanitize("#{labels.join(".")}.example.com") }

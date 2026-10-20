@@ -29,29 +29,34 @@ class HomographicSpoofing::Sanitizer::Base
     # only a substring of a component (a display name carrying spaces) has no
     # whole component to match and falls back to the exact substring replacement.
     #
+    # A label may keep whitespace of its own, as PublicSuffix reports "А " in
+    # " А .com" with only the field's leading padding removed, so a component
+    # also matches with padding set aside on one side or both.
+    #
     # The field is split once for all labels, so a domain with many offending
     # labels is sanitized in time linear in its length.
     def punycode(source, labels)
       components = source.split(/([.@])/)
-      present = components.to_set(&:strip) | components
+      present = components.flat_map { |component| spellings(component) }.to_set
       whole, partial = labels.partition { |label| present.include?(label) }
       whole = whole.to_set
 
       result = components.map do |component|
-        if whole.include?(component)
-          Dnsruby::Name.punycode(component)
-        elsif whole.include?(component.strip)
-          punycode_component(component)
-        else
-          component
-        end
+        label = spellings(component).find { |spelling| whole.include?(spelling) }
+        label ? punycode_component(component, label) : component
       end.join
       partial.inject(result) { |text, label| text.gsub(label) { Dnsruby::Name.punycode(label) } }
     end
 
-    def punycode_component(component)
-      label = component.strip
-      component.sub(label) { Dnsruby::Name.punycode(label) }
+    # The component as written, then without leading, trailing or both
+    # paddings: each is a contiguous part of the component.
+    def spellings(component)
+      [ component, component.lstrip, component.rstrip, component.strip ].uniq
+    end
+
+    def punycode_component(component, label)
+      at = component.index(label)
+      component[0, at] + Dnsruby::Name.punycode(label) + component[(at + label.length)..]
     end
 
     def detector_class
