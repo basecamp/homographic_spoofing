@@ -394,6 +394,18 @@ class HomographicSpoofing::Detector::IdnTest < ActiveSupport::TestCase
     # letters is caught even beside "ー".
     assert_attack("aノーb.example.com", reason: "dangerous_pattern")
 
+    # A label that is only a CJK ideograph that looks like Latin or punctuation
+    # has a dot on each side: "a.一.example.com" reads as "a.-.example.com".
+    assert_attack("一.a.example.com", reason: "dangerous_pattern")
+    assert_attack("a.一.example.com", reason: "dangerous_pattern")
+    assert_attack("x.十.example.com", reason: "dangerous_pattern")
+    assert_attack("一.example.com", reason: "dangerous_pattern")
+    # A CJK word that starts or ends with one stays safe.
+    assert_safe("工行.cn")
+    assert_safe("一号店.com")
+    assert_safe("www.一号店.com")
+    assert_safe("a.十月.example.com")
+
     # A label never starts with a combining mark; one there attaches to the dot
     # before it.
     assert_attack("a.\u0301b.example.com", reason: "invisible_characters")
