@@ -151,6 +151,10 @@ class HomographicSpoofing::Sanitizer::EmailAddressTest < ActiveSupport::TestCase
     assert_sanitize "\"user@tᴡitter.com\" <@[relay>node]:user@xn--titter-345b.com>", "\"user@tᴡitter.com\" <@[relay>node]:user@tᴡitter.com>"
   end
 
+  test "spoofed route domain after a domain literal is sanitized and the literal kept" do
+    assert_sanitize "Name <@[IPv6:2001:db8::1],@xn--80a.com:user@example.com>", "Name <@[IPv6:2001:db8::1],@а.com:user@example.com>"
+  end
+
   # A bare addr-spec is located outside comments, so a leading comment that
   # repeats it verbatim does not take the recipient's replacement.
   test "spoofed bare recipient domain is sanitized when a leading comment repeats the addr-spec" do

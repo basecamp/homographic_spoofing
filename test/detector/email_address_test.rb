@@ -36,6 +36,14 @@ class HomographicSpoofing::Detector::EmailAddressTest < ActiveSupport::TestCase
     assert_attack "someone.from@bl\u{1D0F}gspot.com" # someone.from@blᴏgspot.com
   end
 
+  # A domain literal in an obsolete route is no DNS name, and its ":" and ","
+  # do not split the route.
+  test "domain literals in an obsolete route are not checked as domains" do
+    assert_safe "Name <@[127.0.0.1]:user@example.com>"
+    assert_safe "Name <@[IPv6:2001:db8::1],@example.com:user@example.com>"
+    assert_attack "Name <@[IPv6:2001:db8::1],@\u0430.com:user@example.com>" # @а.com
+  end
+
   private
     def assert_attack(email_address)
       assert HomographicSpoofing::Detector::EmailAddress.detected?(email_address), "No attack detected for #{email_address}."

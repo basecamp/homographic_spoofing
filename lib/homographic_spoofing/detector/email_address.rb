@@ -143,30 +143,36 @@ class HomographicSpoofing::Detector::EmailAddress
       return [] unless start && start + route.length <= gt
 
       route_entries(route).filter_map do |domain, offset, length|
-        [ domain, [ start + offset, length ] ] if domain.present?
+        [ domain, [ start + offset, length ] ] if domain.present? && !domain.start_with?("[")
       end
     end
 
     # Split a route ("@a.example, @b.example:") into its domains in one pass, on
-    # each "," or ":" outside comments. Each entry's span starts after its "@";
+    # each "," or ":" outside comments and domain literals ("@[IPv6:2001:db8::1]"
+    # is one entry; a literal is no DNS name, so it is never checked as one).
+    # Each entry's span starts after its "@";
     # its domain is checked with comments and whitespace set aside (the obsolete
     # syntax allows both between labels), while the sanitizer, which also sets
     # them aside per label, rewrites only the labels within the span.
     def route_entries(route)
       entries = []
-      bare, at, entry_start, depth, escaped = +"", nil, 0, 0, false
+      bare, at, entry_start, depth, escaped, literal = +"", nil, 0, 0, false, false
 
       route.each_char.with_index do |char, index|
         commented = depth > 0
         if escaped
           escaped = false
-        elsif commented && char == "\\"
+        elsif (commented || literal) && char == "\\"
           escaped = true
         elsif commented
           depth += 1 if char == "("
           depth -= 1 if char == ")"
+        elsif literal
+          literal = false if char == "]"
         elsif char == "("
           depth, commented = 1, true
+        elsif char == "["
+          literal = true
         elsif char == "," || char == ":"
           entries << [ bare.gsub(/\s/, ""), at || entry_start, index - (at || entry_start) ]
           bare, at, entry_start = +"", nil, index + 1
