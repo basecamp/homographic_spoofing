@@ -1,3 +1,3 @@
 class HomographicSpoofing::Detector::Rule::Idn::Base < HomographicSpoofing::Detector::Rule::Base
-  delegate :tld, to: :@context
+  delegate :tld, :tld_allowances, to: :@context
 end

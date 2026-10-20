@@ -59,8 +59,10 @@ class HomographicSpoofing::Detector::Rule::Idn::ScriptConfusable < HomographicSp
     end
 
     def is_script_confusable_allowed_for_tld?(confusable)
-      tld_contains_any_letter_from_script?(confusable.script) ||
-        confusable.allowed_tlds&.match?(tld)
+      tld_allowances.fetch(confusable) do
+        tld_allowances[confusable] = tld_contains_any_letter_from_script?(confusable.script) ||
+          confusable.allowed_tlds&.match?(tld) || false
+      end
     end
 
     def tld_contains_any_letter_from_script?(script)

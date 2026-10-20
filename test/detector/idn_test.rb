@@ -417,6 +417,13 @@ class HomographicSpoofing::Detector::IdnTest < ActiveSupport::TestCase
     Timeout.timeout(5) { assert_equal 5_000, HomographicSpoofing::Detector::Idn.detections(domain).size }
   end
 
+  # Under the wildcard suffix "*.mm" the TLD carries a label of the sender's
+  # choosing, so a decision that scans the TLD must not be repeated per label.
+  test "Domains with many labels under a long wildcard TLD are checked in linear time" do
+    domain = ([ "а" ] * 8_000).join(".") + "." + ("b" * 100_000) + ".mm"
+    Timeout.timeout(5) { assert HomographicSpoofing::Detector::Idn.detected?(domain) }
+  end
+
   test "PublixSuffix parsing errors" do
     assert_attack("  ", reason: "invalid_domain")
     assert_attack("example|.com", reason: "disallowed_characters")

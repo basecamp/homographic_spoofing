@@ -83,8 +83,9 @@ class HomographicSpoofing::Detector::Idn
     end
 
     def contexts
+      tld, tld_allowances = public_suffix.tld, {}
       labels.map do |label, occurrence|
-        HomographicSpoofing::Detector::Rule::Idn::Context.new(label:, tld: public_suffix.tld, occurrence:)
+        HomographicSpoofing::Detector::Rule::Idn::Context.new(label:, tld:, occurrence:, tld_allowances:)
       end
     end
 
