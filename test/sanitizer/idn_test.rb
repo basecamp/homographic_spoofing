@@ -107,6 +107,22 @@ class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
     assert_equal ([ "xn--g1a" ] * 5_000).join(".") + ".example.com", sanitized
   end
 
+  # The email-address path scopes each replacement to the component it came
+  # from; the bare-IDN path has a single component — the whole domain — so
+  # part-scoping is a no-op here and this stays identical: the offending label
+  # "з" is punycoded, its benign sibling "мир" untouched.
+  test "part-scoping does not change bare-IDN sanitizing" do
+    assert_sanitize "мир.xn--g1a.example.com", "мир.з.example.com"
+  end
+
+  # A bare domain has no comments or quoted strings, so an unmatched "(" or '"'
+  # must not fold the labels after it into one component: each detected label
+  # is punycoded where it stands, never as a substring of a benign sibling.
+  test "sanitize the labels after an unmatched parenthesis or quote" do
+    assert_sanitize "(.xn--g1a.магазин.example.com", "(.з.магазин.example.com"
+    assert_sanitize "\".xn--g1a.магазин.example.com", "\".з.магазин.example.com"
+  end
+
   private
     def assert_sanitize(sanitized, domain)
       assert_equal sanitized, HomographicSpoofing::Sanitizer::Idn.sanitize(domain)
