@@ -16,6 +16,13 @@ class HomographicSpoofing::Detector::Rule::Idn::DangerousPattern < HomographicSp
     [\u30ce\u30f3\u30bd\u30be\u4e36\u4e40\u4e41\u4e3f]
     [^\p{kana}\p{hira}\p{hani}]/x,
 
+    /# Rules see one label at a time, so a label edge counts as a non-Japanese
+    # side too: the dot the renderer draws there is not Japanese either. Beside
+    # an edge, "ー" (U+30FC, Common to Unicode's Script property but Japanese in
+    # use) counts as Japanese, so words like "ノート" and "コーン" stay clear.
+    \A[\u30ce\u30f3\u30bd\u30be\u4e36\u4e40\u4e41\u4e3f](?:[^\p{kana}\p{hira}\p{hani}\u30fc]|\z)|
+    [^\p{kana}\p{hira}\p{hani}\u30fc][\u30ce\u30f3\u30bd\u30be\u4e36\u4e40\u4e41\u4e3f]\z/x,
+
       /# Disallow three Hiragana letters (U+307[8-A]) or Katakana letters
       # (U+30D[8-A]) that look exactly like each other when they're used
       # in a label otherwise entirely in Katakana or Hiragana.
@@ -48,6 +55,14 @@ class HomographicSpoofing::Detector::Rule::Idn::DangerousPattern < HomographicSp
       # right.
       [\u4e00\u3127\u4e28\u4e5b\u4e03\u4e05\u5341\u3007\u3112\u311a\u311f\u3128\u3129\u3108\u31ba\u31b3\u5de5\u31b2\u8ba0\u4e01]
     [^\p{kana}\p{hira}\p{hani}\p{bopo}]/x,
+
+      /# Rules see one label at a time, so a label that is only one of these
+      # ideographs has the dots the renderer draws on both sides, and neither
+      # is CJK: "a.一.example.com" reads as "a.-.example.com". A longer label
+      # with one at its edge is already caught by the two patterns above when
+      # its other neighbour is non-CJK, and stays safe when it is CJK, as in
+      # "工行" or "一号店".
+      \A[一ㄧ丨乛七丅十〇ㄒㄚㄟㄨㄩㄈㆺㆳ工ㆲ讠丁]\z/x,
 
       /# Disallow combining diacritical mark (U+0300-U+0339) after a
       # non-LGC character. Other combining diacritical marks are not in
