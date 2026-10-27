@@ -55,6 +55,17 @@ class HomographicSpoofing::Sanitizer::IdnTest < ActiveSupport::TestCase
     assert_sanitize "магазин.xn--g1a.example.com", "магазин.з.example.com"
   end
 
+  test "sanitize labels under wildcard public suffixes" do
+    assert_sanitize "xn--80aa0cbo65f.mm", "раураӏ.mm"
+    assert_sanitize "xn--80aa0cbo65f.nom.br", "раураӏ.nom.br"
+    assert_sanitize "login.xn--80aa0cbo65f.mm", "login.раураӏ.mm"
+    # The same label in two casings: both are encoded.
+    assert_sanitize "xn--80aa0cbo66e.xn--80aa0cbo65f.mm", "РАУРАӀ.раураӏ.mm"
+    # A benign label that contains a detected one is left intact.
+    assert_sanitize "магазин.xn--g1a.mm", "магазин.з.mm"
+    assert_sanitize "xn--g1a.магазин.mm", "з.магазин.mm"
+  end
+
   # A spoofed label repeated in different casing must be sanitized at every
   # position, each occurrence punycoded from its own spelling.
   test "sanitize a confusable label repeated with different casing across labels" do
