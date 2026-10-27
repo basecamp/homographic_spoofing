@@ -83,45 +83,54 @@ class HomographicSpoofing::Detector::Idn
     end
 
     def contexts
-      tld, tld_allowances = public_suffix.tld, {}
+      tld_allowances = {}
       labels.map do |label, occurrence|
-        HomographicSpoofing::Detector::Rule::Idn::Context.new(label:, tld:, occurrence:, tld_allowances:)
+        HomographicSpoofing::Detector::Rule::Idn::Context.new(label:, tld: registry_suffix, occurrence:, tld_allowances:)
       end
     end
 
-    # `trd` is the full subdomain chain ("a.b" in a.b.example.com). Split it on
-    # the same dot the renderer draws so each rule sees one real label rather
-    # than a chain. The mixed-script, confusable and digit rules are per-label:
-    # a combined chain both hides attacks (a benign sibling dilutes an
-    # all-look-alike label out of detection) and invents them (two single-script
-    # sibling labels look "mixed" together though each is safe on its own).
+    # Every label left of the registry suffix, split on the same dot the
+    # renderer draws so each rule sees one real label rather than a chain. The
+    # mixed-script, confusable and digit rules are per-label: a combined chain
+    # both hides attacks (a benign sibling dilutes an all-look-alike label out of
+    # detection) and invents them (two single-script sibling labels look "mixed"
+    # together though each is safe on its own).
     #
     # Labels are kept in left-to-right domain order and paired with the index of
     # their occurrence among identical labels, so a repeated label recovers the
     # casing of its own position (see #original_case).
     def labels
-      ordered = [ *public_suffix.trd&.split("."), public_suffix.sld ].compact.reject(&:empty?)
       seen = Hash.new(0)
-      ordered.map do |label|
+      split_domain.last.reject(&:empty?).map do |label|
         occurrence = seen[label]
         seen[label] += 1
         [ label, occurrence ]
       end
     end
 
-    def public_suffix
-      @public_suffix ||= icann_domain || non_icann_domain
+    def registry_suffix
+      split_domain.first
     end
 
-    def icann_domain
-      PublicSuffix.parse(domain, ignore_private: true) if PublicSuffix.valid?(domain)
-    end
+    # Splits the domain into the suffix its registry controls and the labels to
+    # its left. Unlike PublicSuffix.parse:
+    #  - The label a wildcard entry matches (раураӏ in раураӏ.mm, under *.mm) is
+    #    not fixed by the registry, so it is checked like any other label, and
+    #    the registry suffix is only the part the entry spells out (mm).
+    #  - A domain that is itself a public suffix (co.uk, mm) has no label to
+    #    check, and is not an error.
+    #  - Private entries (github.io, *.compute.amazonaws.com) are ignored, so
+    #    names under them are checked like any other name.
+    def split_domain
+      @split_domain ||= begin
+        name = PublicSuffix.normalize(domain)
+        raise name if name.is_a?(PublicSuffix::DomainInvalid)
 
-    def non_icann_domain
-      if PublicSuffix::List.default.find(domain, default: nil, ignore_private: true).present?
-        PublicSuffix::Domain.new(domain)
-      else
-        raise PublicSuffix::DomainInvalid
+        rule = PublicSuffix::List.default.find(name, default: nil, ignore_private: true)
+        # Unknown TLD: the default rule applies, and a single label is invalid.
+        registry_suffix = rule ? rule.parts.join(".") : PublicSuffix.parse(name, ignore_private: true).tld
+        left = name.delete_suffix(registry_suffix).delete_suffix(".")
+        [ registry_suffix, left.split(".", -1) ]
       end
     end
 end
