@@ -216,7 +216,7 @@ jobs:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: rubygem
-      # Ruby for one zlib call: the quick gemspec has to inflate.
+      # Ruby to read the quick gemspec, with RubyGems' safe loader.
       - uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1.327.0
         with:
           ruby-version: "3.4.5"
@@ -236,8 +236,9 @@ jobs:
       #     which is how Bundler knows its cached copy is stale (read from
       #     the file's tail, where new lines are appended, and in full only
       #     when the tail has none);
-      #   - the quick gemspec that RubyGems before 4.1 reads to install,
-      #     as a file that inflates, not merely a 200;
+      #   - the quick gemspec that RubyGems before 4.1 reads to install, as
+      #     this gem's spec at this version, read with RubyGems' own safe
+      #     loader (never Marshal.load on downloaded data), not merely a 200;
       #   - the .gem itself, whose sha256 must match the v2 API's.
       # When this job did the push, that sha256 must also be the gem it
       # pushed. A run that found the version already published may have
@@ -304,7 +305,10 @@ jobs:
               fi
             fi
             if [ "$spec" = no ] && fetch "https://rubygems.org/quick/Marshal.4.8/homographic_spoofing-${VERSION}.gemspec.rz" "$scratch/spec" \
-                && ruby -rzlib -e 'exit(!Zlib::Inflate.inflate(File.binread(ARGV[0])).empty?)' "$scratch/spec" 2>/dev/null; then
+                && ruby -rzlib -rrubygems/safe_marshal -e '
+                     spec = Gem::SafeMarshal.safe_load(Zlib::Inflate.inflate(File.binread(ARGV[0])))
+                     exit(spec.is_a?(Gem::Specification) && spec.name == ARGV[1] && spec.version.to_s == ARGV[2])
+                   ' "$scratch/spec" "homographic_spoofing" "$VERSION" 2>/dev/null; then
               spec=yes
             fi
             if [ -z "$api" ] && fetch "https://rubygems.org/api/v2/rubygems/homographic_spoofing/versions/${VERSION}.json" "$scratch/api.json"; then
