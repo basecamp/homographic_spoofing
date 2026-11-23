@@ -146,6 +146,8 @@ jobs:
       id-token: write
     env:
       VERSION: ${{ needs.build.outputs.version }}
+    outputs:
+      pushed: ${{ steps.push.outputs.pushed }}
     steps:
       # No checkout: this job pushes the gem the build job produced. No
       # setup-ruby either: it downloads a Ruby build at run time, and anything
@@ -175,6 +177,7 @@ jobs:
           fi
       - uses: rubygems/configure-rubygems-credentials@dc5a8d8553e6ee01fc26761a49e99e733d17954a # v2.1.0
       - name: Push to RubyGems
+        id: push
         run: |
           set +e
           output="$(gem push "homographic_spoofing-${VERSION}.gem" 2>&1)"
@@ -183,7 +186,8 @@ jobs:
           echo "$output"
           if [ "$status" -eq 0 ]; then
             echo "Publish succeeded."
-          elif echo "$output" | grep -qi "repushing of gem versions is not allowed\|already been pushed"; then
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
+          elif grep -qi "repushing of gem versions is not allowed\|already been pushed" <<<"$output"; then
             echo "Version already published — treating as success for idempotency."
           else
             exit "$status"
@@ -196,24 +200,140 @@ jobs:
         if: always()
         run: ruby -e 'path = File.expand_path("~/.gem/credentials"); File.delete(path) if File.file?(path) && !File.symlink?(path)'
 
-  # Its own job so that no publishing credential or OIDC token reaches the
-  # third-party code `gem exec` downloads and runs; it gets only the version.
+  # Its own job, with no permissions, so the wait runs nowhere near the
+  # publishing credential or the OIDC token; it gets the version, whether the
+  # publish job pushed, and the gem the build job made.
   await:
     name: Wait for the gem on RubyGems
     needs: [build, publish]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions: {}
     env:
       VERSION: ${{ needs.build.outputs.version }}
     steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: rubygem
+      # Ruby to read the quick gemspec, with RubyGems' safe loader.
       - uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1.327.0
         with:
           ruby-version: "3.4.5"
-      # Pinned: `gem exec` otherwise fetches the newest rubygems-await.
-      - name: Wait for the gem to become available
-        run: gem exec rubygems-await:0.5.4 "homographic_spoofing:${VERSION}"
+
+      # rubygems-await used to run here. It reads the compact index through
+      # Bundler's CompactIndexClient; Bundler 4.1.0, which `gem exec` installs
+      # beside it, moved that class out of the Bundler namespace, and the
+      # fallback then asks RubyGems' cache for a method it does not have. It
+      # crashes on every poll, pinned to 0.5.4 or not, so it times out after a
+      # push that worked, as it did for basecamp-sdk v0.38.0 and v0.39.0.
+      #
+      # This waits on what `gem install` and Bundler fetch, all from the
+      # public index:
+      #   - /info/homographic_spoofing has the version's line, and the sha256 that line
+      #     names is the .gem's (Bundler refuses a download that differs);
+      #   - /versions' last line for homographic_spoofing carries that file's MD5,
+      #     which is how Bundler knows its cached copy is stale (read from
+      #     the file's tail, where new lines are appended, and in full only
+      #     when the tail has none);
+      #   - the quick gemspec that RubyGems before 4.1 reads to install, as
+      #     this gem's spec at this version, read with RubyGems' own safe
+      #     loader (never Marshal.load on downloaded data), not merely a 200;
+      #   - the .gem itself, whose sha256 must match the v2 API's.
+      # When this job did the push, that sha256 must also be the gem it
+      # pushed. A run that found the version already published may have
+      # rebuilt the gem (a full re-run does, and `gem build` stamps it with
+      # the time), so its local file is not compared. A check that has passed
+      # is not repeated while what it read stays the same, so a re-run long
+      # after a release stops reading the full /versions once it has matched. Each request gives up after a
+      # minute (the full /versions after three) or at the ten-minute deadline,
+      # whichever is sooner, so the step reports what was missing well inside
+      # its fifteen-minute limit.
+      - name: Wait until the gem is installable
+        shell: bash
+        timeout-minutes: 15
+        env:
+          PUSHED: ${{ needs.publish.outputs.pushed }}
+          AWAIT_SECONDS: 600
+        run: |
+          want=""
+          if [ "$PUSHED" = true ]; then
+            want=$(sha256sum "homographic_spoofing-${VERSION}.gem" | cut -d' ' -f1)
+          fi
+          # No request starts after the deadline, and none runs more than a
+          # second past it (SECONDS counts whole seconds).
+          fetch() {
+            local left=$((deadline - SECONDS)) max=${limit:-60}
+            [ "$left" -gt 0 ] || return 1
+            [ "$left" -lt "$max" ] && max=$left
+            curl -fsS --connect-timeout 10 --max-time "$max" -o "$2" "${@:3}" "$1" 2>/dev/null
+          }
+          index_line() { { tail -n +2 "$1" | grep '^homographic_spoofing ' || true; } | tail -n 1 | awk '{print $NF}'; }
+          scratch=$(mktemp -d)
+          deadline=$((SECONDS + AWAIT_SECONDS))
+          info=no listed=no spec=no api="" file="" indexed="" verified=""
+          while :; do
+            # Read again while the index names another sha256 than the API's:
+            # metadata that disagrees is not yet the release. What the last read
+            # found stands until a newer read replaces it, and the /info body
+            # /versions last vouched for is not checked against it again.
+            if [ "$listed" = no ] || { [ -n "$api" ] && [ "$indexed" != "$api" ]; }; then
+              line=""
+              if fetch "https://index.rubygems.org/info/homographic_spoofing" "$scratch/info"; then
+                info=no indexed=""
+                line=$({ grep "^${VERSION//./\\.} " "$scratch/info" || true; } | tail -n 1)
+              fi
+              if [ -n "$line" ]; then
+                info=yes
+                indexed=$(sed -nE 's/.*[|,]checksum:([0-9a-f]{64})(,.*)?$/\1/p' <<<"$line")
+                md5=$(md5sum "$scratch/info" | cut -d' ' -f1)
+                if [ "$md5" != "$verified" ]; then
+                  listed=no
+                  last=""
+                  if fetch "https://index.rubygems.org/versions" "$scratch/versions" -r -2000000; then
+                    last=$(index_line "$scratch/versions")
+                  fi
+                  if [ -z "$last" ] && limit=180 fetch "https://index.rubygems.org/versions" "$scratch/versions"; then
+                    last=$(index_line "$scratch/versions")
+                  fi
+                  if [ "$last" = "$md5" ]; then
+                    listed=yes verified=$md5
+                  fi
+                fi
+              elif [ "$info" = no ]; then
+                listed=no
+              fi
+            fi
+            if [ "$spec" = no ] && fetch "https://rubygems.org/quick/Marshal.4.8/homographic_spoofing-${VERSION}.gemspec.rz" "$scratch/spec" \
+                && ruby -rzlib -rrubygems/safe_marshal -e '
+                     spec = Gem::SafeMarshal.safe_load(Zlib::Inflate.inflate(File.binread(ARGV[0])))
+                     exit(spec.is_a?(Gem::Specification) && spec.name == ARGV[1] && spec.version.to_s == ARGV[2])
+                   ' "$scratch/spec" "homographic_spoofing" "$VERSION" 2>/dev/null; then
+              spec=yes
+            fi
+            if [ -z "$api" ] && fetch "https://rubygems.org/api/v2/rubygems/homographic_spoofing/versions/${VERSION}.json" "$scratch/api.json"; then
+              api=$(jq -r '.sha // empty' "$scratch/api.json" 2>/dev/null || true)
+              [[ "$api" =~ ^[0-9a-f]{64}$ ]] || api=""
+            fi
+            if [ -n "$want" ] && [ -n "$api" ] && [ "$api" != "$want" ]; then
+              echo "::error::RubyGems reports homographic_spoofing ${VERSION} with sha256 ${api}, not the ${want} this job pushed."
+              exit 1
+            fi
+            if [ -n "$api" ] && [ "$file" != "$api" ] && fetch "https://rubygems.org/gems/homographic_spoofing-${VERSION}.gem" "$scratch/gem"; then
+              file=$(sha256sum "$scratch/gem" | cut -d' ' -f1)
+            fi
+            state="info: ${info}, versions: ${listed}, gemspec: ${spec}, API sha256: ${api:-none}, index sha256: ${indexed:-none}, downloaded sha256: ${file:-none}"
+            if [ "$info" = yes ] && [ "$listed" = yes ] && [ "$spec" = yes ] && [ -n "$api" ] && [ "$indexed" = "$api" ] && [ "$file" = "$api" ]; then
+              echo "homographic_spoofing ${VERSION} is installable (${state})."
+              exit 0
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::homographic_spoofing ${VERSION} was not installable after ${AWAIT_SECONDS}s of polling (${state})."
+              exit 1
+            fi
+            echo "Waiting for homographic_spoofing ${VERSION} (${state})..."
+            sleep 15
+          done
 
   # A GitHub Release per tag, with the gem attached and notes generated from the
   # merged PRs since the previous tag. changelog_uri and the human CHANGELOG both
