@@ -15,7 +15,7 @@ class HomographicSpoofing::Detector::Rule::Idn::ScriptConfusable < HomographicSp
       # Armenian
       [ /\p{armn}/, /[ագզէլհյոսւօՙ]/, /am/ ],
       # Cyrillic
-      [ /\p{cyrl}/, /[аысԁеԍһіюјӏорԗԛѕԝхуъьҽпгѵѡ]/, /bg|by|kz|pyc|ru|su|ua|uz/ ],
+      [ /\p{cyrl}/, /[аысԁеԍһіюјӏорԗԛѕԝхуүъьҽпгѵѡ]/, /bg|by|kz|pyc|ru|su|ua|uz/ ],
       # # Ethiopic (Ge'ez).
       [ /\p{ethi}/, /[ሀሠሰስበነተከዐዕዘጠፐꬅ]/, /er|et/ ],
       # # Georgian

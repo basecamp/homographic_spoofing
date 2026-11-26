@@ -68,6 +68,17 @@ class HomographicSpoofing::Detector::IdnTest < ActiveSupport::TestCase
     assert_attack("ѕсоԗе.com")
   end
 
+  test "Whole-script labels of Latin look-alikes" do
+    {
+      "үеѕ.com" => "U+04AF CYRILLIC SMALL LETTER STRAIGHT U, y"
+    }.each_key do |domain|
+      assert_attack(domain, reason: "script_confusable")
+    end
+
+    # өнүм (product in Kazakh) also has letters without a Latin look-alike.
+    assert_safe("өнүм.com")
+  end
+
   test "Mixed digits" do
     # 1\u{1D7E4}3rf with Mathematical sans-serif digit two
     assert_attack("1𝟤3rf.com", reason: "mixed_digits")
