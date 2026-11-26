@@ -22,7 +22,7 @@ jobs:
           advanced-security: false
 
   tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     name: Ruby ${{ matrix.ruby }}
