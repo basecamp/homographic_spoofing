@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-26
+
 ### Fixed
 
 - Check the label directly under a wildcard public suffix, such as `раураӏ` in `раураӏ.mm` or `раураӏ.sch.uk`, and every label below it. These names were skipped entirely.
@@ -57,7 +59,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release: detect and sanitize homographic spoofing attacks in URLs and
   email addresses.
 
-[Unreleased]: https://github.com/basecamp/homographic_spoofing/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/basecamp/homographic_spoofing/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/basecamp/homographic_spoofing/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/basecamp/homographic_spoofing/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/basecamp/homographic_spoofing/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/basecamp/homographic_spoofing/compare/v0.1.0...v0.1.1
