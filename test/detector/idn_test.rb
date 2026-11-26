@@ -230,6 +230,8 @@ class HomographicSpoofing::Detector::IdnTest < ActiveSupport::TestCase
     assert_attack("раураӏ.surf", reason: "script_confusable")
     assert_attack("раураӏ.baby", reason: "script_confusable")
     assert_attack("раураӏ.rugby", reason: "script_confusable")
+    # pyc is not a TLD, so it allows nothing.
+    assert_attack("раураӏ.pyc", reason: "script_confusable")
     # Cross-script substring collisions: .net⊃et (Ethiopic), .email⊃il (Hebrew).
     assert_attack("ሠዐዐፐ.net", reason: "script_confusable")
     assert_attack("חסד.email", reason: "script_confusable")
