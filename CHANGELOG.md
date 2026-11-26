@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Check the label directly under a wildcard public suffix, such as `раураӏ` in `раураӏ.mm` or `раураӏ.sch.uk`, and every label below it. These names were skipped entirely.
 - Treat U+04AF (`ү`, Cyrillic straight u) as a Latin `y` look-alike, so whole-Cyrillic labels such as `үеѕ` are flagged like `уеѕ`.
 - Stop allowing whole-Cyrillic look-alike labels under `pyc`, which is not a TLD.
+- Flag a nonspacing mark that appears twice in one run of marks once the label is decomposed, such as `é` followed by U+0301, and flag a run of more than 30 marks.
 - Ignore private public-suffix entries when splitting a domain, so names such as `раураӏ.compute.amazonaws.com` are checked like any other name.
 
 ## [0.2.0] - 2026-10-20

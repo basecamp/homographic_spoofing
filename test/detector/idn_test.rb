@@ -218,6 +218,34 @@ class HomographicSpoofing::Detector::IdnTest < ActiveSupport::TestCase
     assert_attack("\u00e1\u0301.com")
     # Combining mark at the beginning
     assert_attack("\u0300abc.jp")
+    # Precomposed letter followed by its own mark
+    assert_attack("caf\u00e9\u0301.com", reason: "invisible_characters")
+    # Thai tone mark mai tho (U+0E49) repeated
+    assert_attack("\u0e01\u0e49\u0e49.com", reason: "invisible_characters")
+    # A mark repeated with another mark between
+    assert_attack("\u0e01\u0e48\u0e49\u0e48.com", reason: "invisible_characters")
+    # More than 30 marks in a row, all different
+    assert_attack("a" + (0x300..0x31e).map { _1.chr(Encoding::UTF_8) }.join + ".com", reason: "invisible_characters")
+    # 30 different marks in a row are not too many on their own
+    assert_not_includes HomographicSpoofing::Detector::Idn.detections("a" + (0x300..0x31d).map { _1.chr(Encoding::UTF_8) }.join + ".com").map(&:reason), "invisible_characters"
+    # Different marks on one letter are fine
+    assert_safe("ti\u1ebfngvi\u1ec7t.vn")
+    assert_safe("nguy\u1ec5n.vn")
+    assert_safe("\u0e1b\u0e39\u0e48.th") # ปู่
+    assert_safe("\u0939\u0948\u0902.com") # हैं
+    assert_safe("\u0645\u064f\u062d\u064e\u0645\u0651\u064e\u062f.com") # مُحَمَّد
+    assert_safe("\u0f66\u0f92\u0fb2\u0f74\u0f56.com") # སྒྲུབ
+    assert_safe("\u0f67\u0fb2\u0f71\u0f72\u0f7f.com") # ཧྲཱིཿ
+    assert_safe("\u1000\u103b\u1031\u102c\u103a.com") # ကျော်
+    assert_safe("\u1019\u103c\u102d\u102f\u1037.com") # မြို့
+    assert_safe("\u1000\u103c\u1031\u102c\u103a\u1004\u103c\u102c.com") # ကြော်ငြာ
+    # An ASCII domain read as binary has no marks to check
+    assert_safe("example.com".b)
+  end
+
+  test "A long run of marks is flagged without decomposing it" do
+    domain = "a" + "\u0300" * 100_000 + ".com"
+    Timeout.timeout(1) { assert_attack(domain, reason: "invisible_characters") }
   end
 
   test "Whole script confusable is not allowed on TLDs that merely contain an allowed ccTLD as a substring" do

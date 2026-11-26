@@ -1,14 +1,20 @@
 # 7. of Google Chrome IDN policy
 class HomographicSpoofing::Detector::Rule::Idn::InvisibleCharacters < HomographicSpoofing::Detector::Rule::Idn::Base
   def attack_detected?
-    INVISIBLE_CHARACTERS_REGEXP.match?(label)
+    COMBINING_MARK_AT_START.match?(label) || LONG_MARK_RUN.match?(label) || repeated_nonspacing_mark?
   end
 
   private
-    INVISIBLE_CHARACTERS_REGEXP = Regexp.union(
-      /\u0e48{2,}/,   # Thai tone repeated
-      /\u0301{2,}/,   # accute accent repeated
-      /\u00e1\u0301/, # 'a' with acuted accent + another acute accent
-      /\A\p{M}/,      # Combining mark at the beginning of a label
-    )
+    COMBINING_MARK_AT_START = /\A\p{M}/
+
+    # More marks in a row than UAX #15's Stream-Safe Text Format allows (30).
+    # Checked before decomposing, which on some Rubies takes time quadratic in
+    # the length of a run of marks.
+    LONG_MARK_RUN = /\p{M}{31,}/
+
+    # Decomposed first, so a precomposed letter followed by its own mark, such
+    # as "é" + U+0301, counts as the mark repeated.
+    def repeated_nonspacing_mark?
+      !label.ascii_only? && label.unicode_normalize(:nfd).scan(/\p{Mn}+/).any? { |marks| marks.chars.uniq.size < marks.size }
+    end
 end
