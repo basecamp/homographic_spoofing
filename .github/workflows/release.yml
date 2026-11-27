@@ -210,7 +210,7 @@ jobs:
     steps:
       - name: Wait for the gem to become available
         run: |
-          until curl -fsS https://index.rubygems.org/info/homographic_spoofing | grep -q "^${VERSION} "; do
+          until curl -fsS https://index.rubygems.org/info/homographic_spoofing | awk -v v="$VERSION" '$1 == v { found = 1 } END { exit !found }'; do
             sleep 10
           done
 
